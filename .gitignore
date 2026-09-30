@@ -1,0 +1,22 @@
+# Build artifacts
+*.o
+*.out
+
+# Executable
+nvme_wt_sim
+
+# Generated benchmark results
+results/*.csv
+results/*.log
+results/*.png
+
+# Temporary files
+*.tmp
+*.swp
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
