@@ -197,6 +197,7 @@ Write D ─┘
            │
            ▼
    One Physical Write
+```
 ### FR-06 — Optimized Write-Through Cache
 
 The system shall provide an optimized write-through cache implementation that improves write processing by using batching, write coalescing, and multi-queue request distribution.
