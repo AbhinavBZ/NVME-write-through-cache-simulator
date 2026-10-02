@@ -167,23 +167,23 @@ The test verifies that:
 ## Objective
 Verify that multiple concurrent writes targeting the same logical block can be coalesced into a smaller number of physical writes.
 
-the test launches eight concurrent writes targeting the same LBA.
+The test launches eight concurrent writes targeting the same LBA.
 > Conceptually:
 > - Write A ─┐
 > - Write B ─┤
 > - Write C ─┤
 > - Write D ─┤
 > - Write E ─┤──→ Pending Write Table \
-'t> - Write F ─┤
-'t> - Write G ─┤
-'t> - Write H ─┘
-t> 	↓
-t> 	Coalescing 
-t> 	↓
-t> 	Physical Write
+> - Write F ─┤
+> - Write G ─┤
+> - Write H ─┘
+>	↓
+>	Coalescing 
+>	↓
+>	Physical Write
 
 
-# These mechanisms introduce overhead.
+These mechanisms introduce overhead.
 
 Therefore:
 
@@ -252,16 +252,12 @@ The following Stage 4 components are currently implemented and tested:
 | Write batching | Complete |
 | Write coalescing | Complete |
 | Multi-queue scheduling | Complete |
-dLinux O_DIRECT path | Complete |
-eUnit tests | Complete |
-eIntegration tests | Complete |
-eCoalescing correctness test | Complete |
-ePrototype performance experiments | Complete |
-eTesting documentation | Complete |
-def The Linux kernel-driver component has not yet been implemented as a `.ko` module. The current prototype is a user-space Linux/C++ software simulator using Linux storage APIs.
-def The current prototype is a user-space Linux/C++ software simulator using Linux storage APIs.
-dThe Linux kernel-driver component has not yet been implemented as a `.ko` module. The current prototype is a user-space Linux/C++ software simulator using Linux storage APIs.
-dThe Linux kernel-driver component has not yet been implemented as a `.ko` module. The current prototype is a user-space Linux/C++ software simulator using Linux storage APIs.
+| Linux O_DIRECT path | Complete |
+| Unit tests | Complete |
+| Integration tests | Complete |
+| Coalescing correctness test | Complete |
+| Prototype performance experiments | Complete |
+| Testing documentation | Complete |
 
 # 19. Stage 4 Limitations
 
