@@ -5,6 +5,9 @@
 # Executable
 nvme_wt_sim
 
+# Test executables
+tests/*_test
+
 # Generated benchmark results
 results/*.csv
 results/*.log
