@@ -45,9 +45,17 @@ static void parse_args(int argc, char** argv, Config& cfg) {
         else if (a == "--address-space") cfg.address_space = std::stoull(next("--address-space"));
         else if (a == "--queues") cfg.num_queues = std::stoi(next("--queues"));
         else if (a == "--distribution") {
-            std::string v = next("--distribution");
-            cfg.dist = (v == "uniform") ? Distribution::Uniform : Distribution::Zipfian;
-        } else if (a == "--zipf-skew") cfg.zipf_skew = std::stod(next("--zipf-skew"));
+    		std::string v = next("--distribution");
+    		if (v == "uniform") {
+        		cfg.dist = Distribution::Uniform;
+    		} else if (v == "zipf") {
+        		cfg.dist = Distribution::Zipfian;
+    		} else {
+        		std::cerr << "Error: --distribution must be uniform or zipf\n";
+        		std::exit(1);
+    		}
+	}	 
+	else if (a == "--zipf-skew") cfg.zipf_skew = std::stod(next("--zipf-skew"));
         else if (a == "--flush-interval-us") cfg.flush_interval_us = std::stoi(next("--flush-interval-us"));
         else if (a == "--batch-trigger") cfg.batch_trigger = std::stoull(next("--batch-trigger"));
         else if (a == "--app-threads") cfg.app_threads = std::stoi(next("--app-threads"));
