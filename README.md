@@ -13,6 +13,10 @@ while an optional service-time model allows the architectural behavior of
 multi-queue NVMe-style storage to be studied independently of the performance
 characteristics of the development machine.
 
+> **Important:** This project is a software NVMe-style storage simulator.
+> It does not implement a physical NVMe controller, SSD firmware, or a
+> production-grade NVMe kernel driver.
+
 ---
 
 ## 1. Project Overview
@@ -71,8 +75,8 @@ The project is motivated by several storage-system concepts.
 ### 3.1 Write-through persistence
 
 Write-through caching provides a strong persistence guarantee because the
-application does not receive completion until the corresponding data has been
-propagated to the storage layer.
+application does not receive completion until the corresponding data has
+been propagated to the storage layer.
 
 ### 3.2 Repeated writes
 
@@ -103,16 +107,11 @@ this architectural behavior to be studied.
 The project has the following objectives:
 
 1. Implement a conventional synchronous write-through cache.
-
 2. Implement an optimized write-through cache using write coalescing.
-
 3. Implement configurable batching based on pending-request count and flush
    interval.
-
 4. Model multiple NVMe-style queue pairs.
-
 5. Process independent storage requests concurrently.
-
 6. Use Linux system-programming facilities including:
    - `pwrite()`
    - `O_DIRECT`
@@ -121,15 +120,11 @@ The project has the following objectives:
    - mutexes
    - condition variables
    - atomic operations
-
 7. Generate repeatable storage workloads using configurable distributions.
-
 8. Compare the baseline and optimized implementations using common workload
    inputs.
-
 9. Measure latency, throughput, IOPS, queue utilization, and physical
    storage operations.
-
 10. Study how workload locality affects the effectiveness of write coalescing.
 
 ---
@@ -152,7 +147,8 @@ The project covers:
 - workload generation
 - performance measurement
 - CSV-based benchmark output
-- result visualization
+- reliability testing
+- Linux device-driver and storage-system concepts
 
 ### Out of Scope
 
@@ -206,16 +202,15 @@ Linux Storage I/O
      |
      v
 Backing Storage
+```
+
 Each logical write is submitted individually and waits for completion.
 
 ### Optimized
 
 The optimized path introduces additional software-level parallelism:
 
-```
-```
-
-```
+```text
 Application
      |
      v
@@ -241,24 +236,17 @@ Linux Storage I/O
 Backing Storage
 ```
 
----
-
 ## 7. Write Coalescing
 
 The optimized cache maintains pending writes indexed by logical block
-
 address.
 
 When multiple pending writes target the same block, the latest value can
-
 replace the earlier pending value.
 
 For example:
 
-```
-```
-
-```
+```text
 Write LBA 100 -> A
 Write LBA 100 -> B
 Write LBA 100 -> C
@@ -266,141 +254,157 @@ Write LBA 100 -> C
 
 can become:
 
-```
-```
-
-```
+```text
 Physical write:
 
 LBA 100 -> C
 ```
 
 instead of three separate physical operations, provided the writes are still
-
 within the coalescing window.
 
 This follows a **last-writer-wins** model.
 
 The application requests are not acknowledged before the corresponding
-
 physical storage operation completes.
-
----
 
 ## 8. Batching and Multi-Queue Processing
 
 The optimized implementation collects pending writes and flushes them when
-
 configured conditions are reached.
 
 Two important parameters are:
 
-- `flush_interval_us` 
-- `batch_trigger` 
+- `flush_interval_us`
+- `batch_trigger`
 
 Once a batch is ready, requests are dispatched through the NVMe-style queue
-
 layer.
 
 The simulator models multiple queue pairs, with each queue represented by a
-
 worker responsible for processing submitted storage commands.
 
 This allows the project to study the relationship between:
 
--  concurrency 
--  queueing 
--  latency 
--  throughput 
--  queue utilization 
-
----
+- concurrency
+- queueing
+- latency
+- throughput
+- queue utilization
 
 ## 9. Linux System Programming
 
 The project uses Linux I/O facilities rather than implementing storage
-
 operations entirely as an abstract mathematical model.
 
 The storage layer uses:
 
-- `pwrite()` 
-- `O_DIRECT` 
-- `posix_memalign()` 
--  file descriptors 
+- `pwrite()`
+- `O_DIRECT`
+- `posix_memalign()`
+- file descriptors
 
 Concurrency uses C++ wrappers around POSIX/Linux threading primitives:
 
-- `std::thread` 
-- `std::mutex` 
-- `std::condition_variable` 
-- `std::atomic` 
+- `std::thread`
+- `std::mutex`
+- `std::condition_variable`
+- `std::atomic`
 
 Completion signaling uses:
 
-- `std::promise` 
-- `std::future` 
+- `std::promise`
+- `std::future`
 
 The project also uses RAII and STL containers for resource management and
-
 data organization.
 
----
+## 10. Linux Device Driver Concepts
 
-## 10. Workload Generation
+The project is implemented as a **user-space Linux/C++ simulator**, but it
+models several concepts relevant to Linux storage and device-driver
+architecture.
+
+| Linux / Storage Concept | Project Implementation |
+|---|---|
+| Device abstraction | `NVMeDevice` |
+| Request submission | `submit_write()` |
+| Queue management | `NVMeQueuePair` |
+| Request completion | `std::promise` / `std::future` |
+| Multi-queue I/O | Multiple queue pairs |
+| Queue scheduling | Round-robin dispatch |
+| Block I/O | LBA + 4096-byte blocks |
+| Linux storage I/O | `pwrite()` |
+| Direct I/O | `O_DIRECT` |
+| Aligned buffers | `posix_memalign()` |
+| Background request processing | Queue worker threads |
+| Kernel module | Not implemented |
+
+### Kernel Module Status
+
+A loadable Linux kernel module (`.ko`) has **not** been implemented in the
+current version.
+
+The current project focuses on user-space Linux system programming and
+simulation of storage concepts such as:
+
+- device abstraction
+- request submission
+- request completion
+- queue management
+- multi-queue processing
+- block-oriented I/O
+- direct Linux I/O
+
+This distinction is important: the project demonstrates and models relevant
+storage/device-driver concepts without claiming to be an actual kernel
+driver.
+
+## 11. Workload Generation
 
 The simulator supports multiple workload distributions.
 
 ### Uniform
 
 Addresses are selected approximately uniformly across the configured address
-
 space.
 
 This produces relatively low locality and therefore provides a useful
-
 workload for examining multi-queue behavior without intentionally creating
-
 high duplicate-write locality.
 
 ### Zipf
 
 A Zipf distribution creates skewed access patterns where some blocks are
-
 accessed more frequently than others.
 
 This provides more opportunities for write coalescing.
 
 The workload generator uses the same generated workload parameters for the
-
 baseline and optimized paths so that comparisons remain consistent.
 
----
-
-## 11. Performance Metrics
+## 12. Performance Metrics
 
 The simulator records metrics including:
 
--  average latency 
--  p50 latency 
--  p95 latency 
--  p99 latency 
--  maximum latency 
--  application throughput 
--  physical throughput 
--  application IOPS 
--  physical IOPS 
--  physical storage operations 
--  coalescing reduction 
--  average queue utilization 
--  per-queue utilization 
--  wall-clock execution time 
+- average latency
+- p50 latency
+- p95 latency
+- p99 latency
+- maximum latency
+- application throughput
+- physical throughput
+- application IOPS
+- physical IOPS
+- physical storage operations
+- coalescing reduction
+- average queue utilization
+- per-queue utilization
+- wall-clock execution time
 
-Results are written to CSV files for further analysis and visualization.
+Results are written to CSV files for comparison and analysis.
 
----
-
-## 12. Real vs Modeled Device Timing
+## 13. Real vs Modeled Device Timing
 
 The project supports two timing modes.
 
@@ -408,367 +412,455 @@ The project supports two timing modes.
 
 Using:
 
-```
-```
-
-```
---sim-latency-us 0
+```bash
+./nvme_wt_sim --sim-latency-us 0
 ```
 
 the simulator relies on the timing of real Linux `O_DIRECT` `pwrite()`
-
 operations against its backing file.
 
 This measures the behavior of the software on the actual development
-
 environment.
 
-### Modeled service time
+### Modeled Service Time
 
 Using a positive value such as:
 
-```
-```
-
-```
---sim-latency-us 60
+```bash
+./nvme_wt_sim --sim-latency-us 60
 ```
 
 the simulator introduces a configurable service-time model.
 
 This mode is useful for studying architectural behavior without treating the
-
 performance of the development machine's storage subsystem as equivalent to
-
 the performance of a physical NVMe SSD.
 
 Therefore, modeled results should be interpreted as **simulation results**,
-
 not measurements of a particular physical NVMe device.
 
----
+## 14. Technology Stack
 
-## 13. Technology Stack
+| Category | Technology |
+|---|---|
+| Language | C++17 |
+| Operating System | Linux |
+| Development Environment | Ubuntu on WSL2 |
+| Compiler | GNU g++ |
+| Build System | GNU Make |
+| Storage I/O | `pwrite()` |
+| Direct I/O | `O_DIRECT` |
+| Memory Alignment | `posix_memalign()` |
+| Concurrency | `std::thread` |
+| Synchronization | `std::mutex`, `std::condition_variable` |
+| Atomic Operations | `std::atomic` |
+| Completion | `std::future`, `std::promise` |
+| Data Structures | C++ STL |
+| Benchmark Output | CSV |
+| Version Control | Git |
 
-| Category          | Technology                              |
-| ----------------- | --------------------------------------- |
-| Language          | C++17                                   |
-| Operating System  | Linux / WSL2 development environment    |
-| Compiler          | GNU g++                                 |
-| Build System      | GNU Make                                |
-| Storage I/O       | `pwrite()`                              |
-| Direct I/O        | `O_DIRECT`                              |
-| Concurrency       | `std::thread`                           |
-| Synchronization   | `std::mutex`, `std::condition_variable` |
-| Atomic Operations | `std::atomic`                           |
-| Completion        | `std::future`, `std::promise`           |
-| Data Structures   | C++ STL                                 |
-| Benchmark Output  | CSV                                     |
-| Visualization     | Python / Matplotlib                     |
-| Version Control   | Git                                     |
+## 15. Build and Run
 
----
+### Build
 
-## 14. Build and Run
+Build the project using GNU Make:
 
-Build the project:
-
-```
-```
-
-```
+```bash
 make
 ```
 
-Display available options:
+### Run Tests
 
-```
+The project includes unit and integration tests:
+
+```bash
+make test
 ```
 
-```
+### Display Available Options
+
+```bash
 ./nvme_wt_sim --help
 ```
 
-Example workload:
+### Example Workload
 
-```
-```
-
-```
+```bash
 ./nvme_wt_sim \
-  --requests 20000 \
-  --address-space 50000 \
+  --requests 1000 \
+  --address-space 50 \
   --queues 8 \
   --distribution zipf \
-  --zipf-skew 1.2 \
-  --app-threads 64 \
-  --flush-interval-us 40 \
-  --batch-trigger 32 \
+  --zipf-skew 1.5 \
+  --app-threads 8 \
+  --flush-interval-us 200 \
+  --batch-trigger 64 \
   --sim-latency-us 60
 ```
 
 The program produces a comparison report and writes:
 
-```
-```
-
-```
+```text
 results/comparison.csv
 ```
 
-Charts can be generated using:
+### Important Command-Line Parameters
 
-```
-```
+| Parameter | Purpose |
+|---|---|
+| `--requests` | Number of logical write requests |
+| `--address-space` | Number of addressable storage blocks |
+| `--queues` | Number of NVMe-style queue pairs |
+| `--distribution` | Uniform or Zipf workload |
+| `--zipf-skew` | Zipf locality parameter |
+| `--flush-interval-us` | Optimized-cache flush interval |
+| `--batch-trigger` | Pending writes required to trigger a flush |
+| `--app-threads` | Concurrent application threads |
+| `--sim-latency-us` | Modeled per-operation service time |
+| `--backing-dir` | Directory for backing storage files |
+| `--results-dir` | Directory for benchmark output |
 
-```
-python3 scripts/plot_results.py results/comparison.csv results/chart.png
-```
+## 16. Testing and Validation
 
-### Important command-line parameters
+The project was tested at multiple levels.
 
-| Parameter             | Purpose                                    |
-| --------------------- | ------------------------------------------ |
-| `--requests`          | Number of logical write requests           |
-| `--address-space`     | Number of addressable storage blocks       |
-| `--queues`            | Number of NVMe-style queue pairs           |
-| `--distribution`      | Uniform or Zipf workload                   |
-| `--zipf-skew`         | Zipf locality parameter                    |
-| `--flush-interval-us` | Optimized-cache flush interval             |
-| `--batch-trigger`     | Pending writes required to trigger a flush |
-| `--app-threads`       | Concurrent application threads             |
-| `--sim-latency-us`    | Modeled per-operation service time         |
-| `--backing-dir`       | Directory for backing storage files        |
-| `--results-dir`       | Directory for benchmark output             |
+### Unit Testing
 
----
+Tests cover:
 
-## 15. Initial Prototype Verification
+- workload generation
+- metrics collection
+- cache/device integration
+- write coalescing
 
-The project was rebuilt from source in the Linux/WSL2 development environment
+### Reliability Testing
 
-using:
+Additional tests cover:
 
-```
-```
+- minimum workload
+- zero-request workload
+- single-thread execution
+- different queue counts
+- different address-space sizes
+- Uniform workloads
+- Zipf workloads
+- different application thread counts
+- batch-trigger boundaries
+- real Linux `O_DIRECT` I/O
+- modeled service-time execution
+- invalid queue counts
+- invalid address-space values
+- invalid Zipf skew
+- invalid workload distribution
+- edge-case parameter handling
 
-```
-C++17
--O2
--Wall
--Wextra
--pthread
-```
+### Coalescing Verification
 
-The executable successfully compiled from:
+A deterministic coalescing test verifies that multiple logical writes targeting
+the same LBA within the coalescing window can be reduced to fewer physical
+writes.
 
-```
-```
+The test demonstrates the relationship between:
 
-```
-src/main.cpp
-src/metrics.cpp
-src/nvme_device.cpp
-src/workload.cpp
-src/write_through_cache.cpp
-```
-
-A small initial test was executed with:
-
-```
-```
-
-```
-./nvme_wt_sim \
-  --requests 1000 \
-  --distribution uniform \
-  --app-threads 4 \
-  --sim-latency-us 60
+```text
+Logical writes
+      ↓
+Pending write table
+      ↓
+Coalescing
+      ↓
+Physical writes
 ```
 
-The program successfully executed both the baseline and optimized paths and
+Detailed test information is available in:
 
-generated:
-
-```
-```
-
-```
-results/comparison.csv
+```text
+docs/testing.md
+docs/reliability-testing.md
 ```
 
-The initial test produced no coalescing because the selected uniform workload
+## 17. Project Documentation
 
-did not generate repeated pending writes to the same logical blocks.
+Additional project documentation is available in the `docs/` directory.
 
-The result is treated as an initial verification point rather than a final
+| Document | Description |
+|---|---|
+| `requirements.md` | Project requirements and development plan |
+| `architecture.md` | System architecture and component relationships |
+| `design.md` | Detailed software design |
+| `testing.md` | Testing approach and test evidence |
+| `reliability-testing.md` | Reliability and edge-case testing |
+| `linux-driver-concepts.md` | Linux device-driver and storage concept mapping |
 
-performance conclusion. Further experiments will evaluate workload locality,
+## 18. Project Structure
 
-concurrency, queue count, batching, and service-time parameters.
-
----
-
-## 16. Project Structure
-
-```
-```
-
-```
+```text
 nvme_wt_sim/
 ├── .gitignore
 ├── Makefile
 ├── README.md
+│
 ├── include/
 │   ├── metrics.hpp
 │   ├── nvme_device.hpp
 │   ├── workload.hpp
 │   └── write_through_cache.hpp
+│
 ├── src/
 │   ├── main.cpp
 │   ├── metrics.cpp
 │   ├── nvme_device.cpp
 │   ├── workload.cpp
 │   └── write_through_cache.cpp
-├── scripts/
-│   └── plot_results.py
-└── results/
+│
+├── tests/
+│   ├── cache_integration_test.cpp
+│   ├── coalescing_test.cpp
+│   ├── metrics_test.cpp
+│   └── workload_test.cpp
+│
+└── docs/
+    ├── requirements.md
+    ├── architecture.md
+    ├── design.md
+    ├── testing.md
+    ├── reliability-testing.md
+    └── linux-driver-concepts.md
 ```
 
 Generated binaries, object files, logs, CSV files, and charts are excluded
+from normal Git tracking through `.gitignore`.
 
-from normal Git tracking through `.gitignore` unless selected as final
+## 19. Development Stages
 
-project artifacts later.
-
----
-
-## 17. Development Roadmap
-
-The project is being developed incrementally through six development stages.
+The project was developed incrementally through six stages.
 
 ### Stage 1 — Project Introduction
 
-Define:
+Defined:
 
--  project idea 
--  problem statement 
--  motivation 
--  objectives 
--  scope 
--  expected outcome 
--  technology stack 
+- project idea
+- problem statement
+- motivation
+- objectives
+- scope
+- expected outcome
+- technology stack
 
-**Current stage.**
+**Status: Completed**
 
 ### Stage 2 — Requirements and Development Plan
 
-Define:
+Defined:
 
--  functional requirements 
--  non-functional requirements 
--  project requirements document 
--  modules 
--  features 
--  constraints 
--  development timeline 
+- functional requirements
+- non-functional requirements
+- project requirements
+- modules
+- features
+- constraints
+- development plan
+
+**Status: Completed**
 
 ### Stage 3 — System Design and Architecture
 
-Develop:
+Developed:
 
--  system architecture 
--  component responsibilities 
--  data structures 
--  class diagram 
--  sequence diagram 
--  state-machine diagram 
--  implementation plan 
--  development environment 
--  Git workflow 
+- system architecture
+- component responsibilities
+- data structures
+- class design
+- sequence and processing flows
+- implementation plan
+- development environment
+- Git workflow
+
+**Status: Completed**
 
 ### Stage 4 — Initial Implementation and Prototype
 
-Progressively implement and integrate:
+Implemented and integrated:
 
--  storage layer 
--  NVMe-style queue layer 
--  cache layer 
--  workload generator 
--  metrics 
--  prototype functionality 
+- storage layer
+- NVMe-style queue layer
+- cache layer
+- workload generator
+- metrics collection
+- baseline implementation
+- optimized implementation
+- write coalescing
+- batching
+- multi-queue processing
+
+**Status: Completed**
 
 ### Stage 5 — Testing, Integration and Improvement
 
-Perform:
+Performed:
 
--  unit testing 
--  integration testing 
--  system testing 
--  performance benchmarking 
--  debugging 
--  reliability testing 
--  performance improvement 
+- unit testing
+- integration testing
+- system testing
+- performance experiments
+- debugging
+- reliability testing
+- invalid-input testing
+- workload comparison
+- real Linux I/O testing
+- modeled service-time testing
+
+**Status: Completed**
 
 ### Stage 6 — Final Implementation and Presentation
 
-Prepare:
+Prepared:
 
--  final implementation 
--  final benchmark results 
--  architecture documentation 
--  testing evidence 
--  source code 
--  Git history 
--  final report 
--  presentation 
--  demonstration 
--  limitations 
--  future work 
+- final implementation
+- benchmark evidence
+- architecture documentation
+- testing documentation
+- Linux device-driver concept documentation
+- source code
+- Git history
+- project README
+- limitations
+- demonstration material
 
----
+**Status: Final Preparation / Submission**
 
-## 18. Project Status
+## 20. Current Project Status
 
-| Area                  | Status      |
-| --------------------- | ----------- |
-| Project concept       | Complete    |
-| Initial prototype     | Complete    |
-| Linux build           | Verified    |
-| Baseline cache        | Implemented |
-| Optimized cache       | Implemented |
-| Coalescing            | Implemented |
-| Batching              | Implemented |
-| Multi-queue model     | Implemented |
-| Workload generation   | Implemented |
-| Metrics               | Implemented |
-| Initial benchmark     | Verified    |
-| Requirements document | Planned     |
-| Architecture/UML      | Planned     |
-| Formal testing        | Planned     |
-| Final optimization    | Planned     |
+| Area | Status |
+|---|---|
+| Project concept | Complete |
+| Requirements | Complete |
+| System architecture | Complete |
+| Software design | Complete |
+| Linux/C++ implementation | Complete |
+| Baseline cache | Implemented |
+| Optimized cache | Implemented |
+| Write coalescing | Implemented |
+| Batching | Implemented |
+| Multi-queue model | Implemented |
+| Workload generation | Implemented |
+| Metrics | Implemented |
+| Unit testing | Complete |
+| Integration testing | Complete |
+| Reliability testing | Complete |
+| Input validation | Complete |
+| Real Linux I/O testing | Verified |
+| Modeled service-time testing | Verified |
+| Linux driver concept documentation | Complete |
+| GitHub repository | Prepared |
+| Final demonstration | Preparation |
 
----
+## 21. Key Observations
 
-## 19. Disclaimer
+The experiments show that the optimized implementation does not necessarily
+produce lower latency for every workload.
+
+The effectiveness of the optimized design depends on factors including:
+
+- workload locality
+- number of queues
+- application concurrency
+- batching conditions
+- coalescing opportunities
+- synchronization overhead
+- storage service time
+
+Workloads with greater locality can provide more opportunities for write
+coalescing and therefore reduce the number of physical storage operations.
+
+For workloads with limited locality, the additional synchronization,
+background flushing, and batching overhead can reduce or eliminate the
+benefit.
+
+Therefore, the optimized implementation should not be interpreted as being
+universally faster. The purpose of the project is to study how different
+storage-system techniques affect behavior under different workloads.
+
+## 22. Limitations
+
+The current implementation has several limitations:
+
+1. The NVMe device is modeled in software rather than implemented as physical
+   NVMe hardware.
+
+2. A loadable Linux kernel driver (`.ko`) is not implemented.
+
+3. The project does not implement the complete NVMe specification.
+
+4. The backing storage is a Linux file rather than a physical NVMe namespace.
+
+5. Modeled service-time results are architectural simulation results and not
+   physical SSD measurements.
+
+6. Real `O_DIRECT` measurements depend on the development machine and its
+   storage subsystem.
+
+7. The simulator is intended as a learning and systems-programming project,
+   not a production storage implementation.
+
+## 23. Future Work
+
+Possible future extensions include:
+
+- implementing a lightweight Linux character-device interface where the
+  development environment permits it
+- exploring kernel-space request handling
+- experimenting with different queue scheduling policies
+- evaluating additional workload distributions
+- exploring different batching strategies
+- improving error propagation for failed physical I/O operations
+- extending the storage-device model
+
+These are outside the scope of the current submission.
+
+## 24. Conclusion
+
+The **Write-Through Caching NVMe Accelerator Simulator** demonstrates how
+software-level storage techniques can be modeled and evaluated using C++17
+and Linux system programming.
+
+The project combines:
+
+```text
+Write-Through Caching
+        +
+Write Coalescing
+        +
+Batching
+        +
+NVMe-Style Multi-Queue Processing
+        +
+Linux Direct I/O
+        +
+Concurrent Request Processing
+        +
+Performance Measurement
+```
+
+The comparison between the baseline and optimized implementations provides
+a practical way to study the relationship between logical application writes,
+physical storage operations, queueing, concurrency, workload locality, and
+system performance.
+
+The project is intentionally scoped as a **software simulator and
+systems-programming experiment**, rather than a physical NVMe controller or
+complete Linux kernel storage driver.
+
+## 25. Disclaimer
 
 This project is a software simulator and systems-programming experiment.
 
-The NVMe component models concepts such as queue parallelism and concurrent
-
-request processing. It should not be interpreted as an implementation of a
-
-physical NVMe controller or a complete NVMe hardware/firmware stack.
+The NVMe component models concepts such as queue parallelism, request
+submission, request completion, batching, coalescing, and concurrent request
+processing. It should not be interpreted as an implementation of a physical
+NVMe controller or a complete NVMe hardware/firmware stack.
 
 Performance results depend on the selected workload, simulation parameters,
-
 and development environment. Modeled results are intended to study
-
 architectural behavior rather than represent guaranteed performance on a
-
 specific physical SSD.
-
-```
-```
-
-````
