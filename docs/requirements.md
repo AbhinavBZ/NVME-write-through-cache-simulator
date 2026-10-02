@@ -1,1359 +1,784 @@
-# Requirements Specification
+# Project Requirements
+
 ## Write-Through Caching NVMe Accelerator Simulator
 
-**Project Type:** B.Tech Capstone Project  
-**Domain:** Linux System Programming, Storage Systems, C++, Device/IO Simulation  
-**Development Environment:** Linux / Ubuntu under WSL2  
+**Project:** Write-Through Caching NVMe Accelerator Simulator
+**Stage:** Stage 2 — Requirements and Development Plan
 **Language:** C++17
+**Platform:** Linux / Ubuntu under WSL2
 
 ---
 
-# 1. Document Purpose
+# 1. Purpose
 
-This document defines the requirements and development plan for the **Write-Through Caching NVMe Accelerator Simulator**.
+This document defines the requirements and development plan for the Write-Through Caching NVMe Accelerator Simulator.
 
-The project is a Linux/C++ software simulator for write-through caching and NVMe-style multi-queue I/O. It evaluates write coalescing, batching, configurable workloads, Linux file I/O, and modeled storage latency.
+The project investigates how software-level write-through caching techniques can organize storage write requests more efficiently.
 
-It establishes what the system must do, quality requirements, scope, modules, deliverables, acceptance criteria, and development roadmap.
+The system compares:
 
----
+1. A baseline synchronous write-through cache
+2. An optimized write-through cache using:
+   - Write coalescing
+   - Batching
+   - Background flushing
+   - NVMe-style multi-queue processing
+   - Concurrent application threads
 
-# 2. Project Overview
-
-## 2.1 Problem Statement
-
-Write-heavy storage workloads can generate a large number of physical write operations. When multiple writes target the same logical block, submitting every pending write independently can create unnecessary storage traffic.
-
-This project investigates a software architecture that combines write-through caching with write coalescing, batching, and multiple I/O queues to study write behavior and performance.
-
-The project provides two implementations:
-
-1. **Baseline Write-Through Cache**
-2. **Optimized Write-Through Cache**
-
-Both implementations can be evaluated under controlled workloads and compared using latency, throughput, IOPS, physical operation count, queue utilization, and other metrics.
-
-## 2.2 Motivation
-
-The simulator provides a controlled experimental environment where workloads can be configured, optimization mechanisms can be enabled, and measurable results can be collected.
-
-## 2.3 Main Objective
-
-Design and implement a Linux/C++ software simulator that demonstrates and evaluates write-through caching with:
-
-- write coalescing,
-- batching,
-- NVMe-style multi-queue processing,
-- configurable workloads,
-- and measurable performance characteristics.
+The project is implemented as a Linux/C++ software simulator using a backing storage file and Linux file I/O.
 
 ---
 
-# 3. Objectives
+# 2. Problem Statement
 
-The project shall aim to:
+A simple synchronous write-through cache may submit each logical write as an individual physical storage operation and wait for its completion before continuing.
 
-1. Implement a baseline write-through cache.
+This can result in:
+
+- High per-request overhead
+- Limited queue utilization
+- Limited storage parallelism
+- Repeated physical writes for the same logical block
+
+The project therefore investigates whether write coalescing, batching, and NVMe-style multi-queue processing can reduce unnecessary physical operations and improve the organization of the write path while preserving write-through behavior.
+
+---
+
+# 3. Project Objectives
+
+The project has the following objectives:
+
+1. Implement a conventional synchronous write-through cache.
+
 2. Implement an optimized write-through cache.
-3. Implement pending-write coalescing.
-4. Implement configurable batch processing.
-5. Simulate multiple NVMe-style I/O queues.
-6. Use Linux file I/O as the storage backend.
-7. Support real and modeled storage timing.
-8. Generate configurable workloads.
-9. Support Uniform and Zipf workload distributions.
-10. Collect detailed performance metrics.
-11. Generate machine-readable benchmark results.
-12. Compare baseline and optimized implementations.
-13. Support reproducible experiments.
-14. Maintain modular and maintainable C++ code.
-15. Document architecture, implementation, testing, limitations, and results.
+
+3. Implement write coalescing for repeated writes to the same logical block.
+
+4. Implement configurable batching of pending writes.
+
+5. Implement background flushing of pending writes.
+
+6. Model multiple NVMe-style queue pairs.
+
+7. Process independent physical writes concurrently.
+
+8. Generate repeatable storage workloads using configurable distributions.
+
+9. Compare baseline and optimized implementations using the same workload.
+
+10. Measure:
+    - Latency
+    - Throughput
+    - IOPS
+    - Physical operation count
+    - Queue utilization
+    - Coalescing reduction
 
 ---
 
-# 4. Scope
+# 4. Project Scope
 
-## 4.1 In Scope
+## 4.1 Included
 
-- Linux/C++ implementation
-- C++17
+The project covers:
+
+- C++17 systems programming
+- Linux system programming
 - Write-through caching
-- Baseline cache implementation
-- Optimized cache implementation
 - Write coalescing
-- Batch processing
-- Background flushing
-- Multiple software I/O queues
-- Concurrent queue workers
+- Request batching
+- NVMe-style multi-queue processing
+- Concurrent I/O processing
+- Logical block addressing
+- Linux direct I/O
 - Workload generation
-- Uniform distribution
-- Zipf distribution
-- Configurable random seed
-- Configurable application threads
-- Linux `pwrite()` based storage operations
-- Linux `O_DIRECT` storage mode
-- Aligned I/O buffers using `posix_memalign()`
-- Real storage timing
-- Modeled storage latency
-- Latency measurement
-- IOPS measurement
-- Throughput measurement
-- Physical operation counting
-- Coalescing statistics
-- Queue utilization measurement
-- CSV/log result generation
-- Benchmark comparison
-- Reproducible experiments
+- Performance measurement
+- Automated testing
+- Benchmark result generation
+- Git/GitHub based development
+
+---
 
 ## 4.2 Out of Scope
 
-The initial project does not claim to implement:
+The project does not attempt to implement:
 
-- A real NVMe controller
-- A real hardware NVMe driver
-- Firmware-level NVMe functionality
-- Hardware-level SSD acceleration
-- Real PCIe NVMe command submission
-- Hardware-specific NVMe performance characterization
-- A production storage system
-- A production-grade kernel storage driver
+- A physical NVMe controller
+- SSD firmware
+- NAND flash management
+- A Flash Translation Layer
+- PCIe protocol implementation
+- Complete NVMe specification compliance
+- FPGA-based storage hardware
+- Modification of physical SSD firmware
+- A production-grade NVMe kernel driver
 
-A Linux character-device or kernel-module interface may be investigated later if it is required by the academic project and is feasible in the target environment.
+The NVMe component is a software model of NVMe-style queue-based storage behavior.
 
 ---
 
 # 5. Functional Requirements
 
-## FR-01 — Workload Generation
+## FR-01: Workload Generation
 
-The system shall generate configurable write workloads supporting:
+The system shall generate logical write requests for benchmarking.
 
-- Number of requests
-- Logical address space
-- Random seed
-- Application thread count
-- Address distribution
+The workload generator shall support:
 
-Supported distributions:
+- Configurable request count
+- Configurable address-space size
+- Configurable random seed
+- Uniform distribution
+- Zipfian distribution
+- Configurable Zipf skew
 
-- Uniform
-- Zipf
+---
 
-## FR-02 — Write Request Generation
+## FR-02: Logical Write Requests
 
-The system shall generate logical write requests containing:
+Each generated request shall contain the information required to perform a logical storage write.
 
-- Request ID
-- Logical Block Address (LBA)
-- Write size
-- Data
-- Timing information where applicable
+The request shall include:
 
-The initial implementation shall use a fixed block size of **4096 bytes**.
+- Logical block address
+- Write data
+- Request information required by the benchmark
 
-## FR-03 — Baseline Write-Through Cache
+---
+
+## FR-03: Baseline Write-Through Cache
 
 The system shall provide a baseline write-through cache.
 
-Flow:
+The baseline implementation shall:
 
-1. Receive write request.
-2. Update cache state.
-3. Submit corresponding physical write.
-4. Wait for completion.
-5. Complete the application request.
+1. Receive a logical write.
+2. Update the in-memory cache.
+3. Create an aligned write buffer.
+4. Submit the physical write.
+5. Wait for completion.
+6. Complete the logical request.
 
-This provides the reference implementation for comparison.
-
-## FR-04 — Optimized Write-Through Cache
-
-The system shall provide an optimized write-through cache using:
-
-- Write coalescing
-- Batch processing
-- Multi-queue processing
-- Background flushing
-
-## FR-05 — Write Coalescing
-
-The system shall combine appropriate pending writes targeting the same LBA.
-
-For example:
-
-```text
-Write A → LBA 100
-Write B → LBA 100
-Write C → LBA 100
-```
-
-may result in one final physical write for the pending coalescing window.
-
-The implementation shall use a latest-pending-write-wins model for writes to the same LBA. Coalescing shall not be described as intentionally discarding a write that has already completed persistence.
-
-## FR-06 — Batch Processing
-
-The optimized implementation shall group pending writes into batches.
-
-Configurable parameters include:
-
-- Batch trigger size
-- Flush interval
-
-## FR-07 — NVMe-Style Multi-Queue Processing
-
-The system shall simulate multiple independent I/O queues.
-
-The number of queues shall be configurable, and queue workers shall process submitted operations concurrently.
-
-This represents **NVMe-style software queue behavior**, not a physical NVMe controller.
-
-## FR-08 — Storage Backend
-
-The storage backend shall use Linux file I/O mechanisms including:
-
-- `pwrite()`
-- `O_DIRECT`
-- `posix_memalign()`
-
-## FR-09 — Configurable Device Latency
-
-The simulator shall support real I/O mode and modeled latency mode.
-
-Real I/O example:
-
-```text
---sim-latency-us 0
-```
-
-Modeled latency example:
-
-```text
---sim-latency-us 60
-```
-
-## FR-10 — Performance Measurement
-
-The system shall collect:
-
-- Average latency
-- p50 latency
-- p95 latency
-- p99 latency
-- Maximum latency
-- IOPS
-- Throughput
-- Logical writes
-- Physical writes
-- Coalescing reduction
-- Wall-clock execution time
-- Queue utilization
-
-## FR-11 — Result Generation
-
-The system shall generate:
-
-- CSV
-- Log files
-- PNG charts where applicable
-
-## FR-12 — Configurable Experiments
-
-The command-line interface shall support parameters including:
-
-```text
---requests N
---address-space N
---queues N
---distribution uniform|zipf
---zipf-skew F
---flush-interval-us N
---batch-trigger N
---app-threads N
---seed N
---sim-latency-us N
---backing-dir DIR
---results-dir DIR
-```
-
-## FR-13 — Comparison of Implementations
-
-The system shall execute and compare the baseline and optimized implementations under equivalent workload configurations.
-
-## FR-14 — Reproducible Experiments
-
-The system shall support deterministic workload generation using a configurable random seed. Measured execution timing may still vary because of operating-system scheduling and storage behavior.
-
-## FR-15 — Linux Device-Interface Investigation
-
-The project shall investigate whether a Linux character-device or kernel-module component can be integrated if required by the academic course.
-
-Feasibility shall be evaluated during system design before committing to a kernel-module implementation.
+The baseline path shall act as the reference implementation.
 
 ---
 
-# 6. Non-Functional Requirements
+## FR-04: Optimized Write-Through Cache
 
-## NFR-01 — Performance
+The system shall provide an optimized write-through cache.
 
-The simulator should efficiently process large numbers of write requests. Evaluation shall consider IOPS, throughput, latency percentiles, maximum latency, and execution time.
-
-## NFR-02 — Scalability
-
-The system should support increasing:
-
-- Number of requests
-- Application threads
-- Number of queues
-- Logical address space
-- Batch size
-
-## NFR-03 — Configurability
-
-Experiment parameters should be configurable without source-code modification.
-
-## NFR-04 — Reproducibility
-
-Experiments should support repeatable workload generation using the same configuration and random seed.
-
-## NFR-05 — Reliability
-
-The simulator should correctly handle concurrent writes, queue synchronization, background flushing, batch formation, completion signaling, and shutdown.
-
-## NFR-06 — Data Integrity
-
-The simulator should preserve the intended write-through semantics. Pending writes may be coalesced according to the defined latest-pending-write model.
-
-## NFR-07 — Concurrency Safety
-
-Shared data structures shall be protected from race conditions, including pending-write maps, queue structures, batch formation, completion signaling, and shutdown state.
-
-## NFR-08 — Portability
-
-The initial target is Linux/Ubuntu with C++17, g++, POSIX/Linux APIs, and pthread support. Development is currently performed using Ubuntu under WSL2.
-
-## NFR-09 — Maintainability
-
-The implementation shall remain modular, with logical separation between workload, cache, NVMe device/queue simulation, metrics, and experiment runner components.
-
-## NFR-10 — Extensibility
-
-The architecture should allow future extensions such as additional workload distributions, cache policies, queue scheduling policies, storage backends, more detailed NVMe behavior, and optional device/kernel interfaces.
-
-## NFR-11 — Observability
-
-The system shall provide logs, CSV metrics, performance summaries, queue utilization, logical versus physical operation counts, and coalescing statistics.
-
-## NFR-12 — Usability
-
-The simulator should be buildable and runnable with:
-
-```bash
-make
-./nvme_wt_sim --help
-./nvme_wt_sim [options]
-```
-
-## NFR-13 — Documentation
-
-Documentation shall cover requirements, architecture, implementation, testing, benchmark methodology, results, limitations, and future work.
-
-## NFR-14 — Code Quality
-
-The implementation should use meaningful names, modular classes, appropriate comments, minimal duplication, compiler warnings, consistent structure, and proper resource management.
-
-Compilation shall use warning flags including:
-
-```text
--Wall
--Wextra
-```
-
-## NFR-15 — Resource Management
-
-The system shall correctly manage threads, file descriptors, aligned buffers, synchronization primitives, queues, and pending requests.
-
----
-
-# 7. System Requirements
-
-## 7.1 Hardware
-
-Recommended development environment:
-
-- x86-64 computer
-- Multi-core CPU
-- 8 GB RAM or more recommended
-- Sufficient disk space for source, build artifacts, backing files, and benchmark results
-
-The core simulator does not require a physical NVMe SSD.
-
-## 7.2 Operating System
-
-Primary target:
-
-- Linux / Ubuntu
-
-Current development environment:
-
-- Ubuntu under WSL2 on Windows
-
-Kernel-module/device-driver requirements shall be separately evaluated for WSL2 compatibility.
-
-## 7.3 Compiler and Build Tools
-
-Required:
-
-- GNU g++
-- C++17 support
-- GNU Make
-
-Verification:
-
-```bash
-g++ --version
-make --version
-```
-
-## 7.4 Linux/POSIX Facilities
-
-The project uses:
-
-- POSIX threads
-- File descriptors
-- `pwrite()`
-- `O_DIRECT`
-- `posix_memalign()`
-- Mutexes
-- Condition variables
-- Futures/promises where applicable
-
-## 7.5 Development Tools
-
-Recommended:
-
-- Git
-- GitHub
-- VS Code
-- WSL2
-- Linux terminal
-- GDB for debugging where required
-
----
-
-# 8. Project Modules
-
-## 8.1 Workload Generator
-
-Responsibilities:
-
-- Generate requests
-- Select LBAs
-- Apply workload distribution
-- Control random seed
-- Produce configurable workloads
-
-## 8.2 Baseline Write-Through Cache
-
-Responsibilities:
-
-- Receive writes
-- Update cache state
-- Submit physical writes
-- Wait for completion
-
-## 8.3 Optimized Write-Through Cache
-
-Responsibilities:
-
-- Receive writes
-- Maintain pending writes
-- Perform coalescing
-- Form batches
-- Trigger background flushes
-- Signal request completion
-
-## 8.4 NVMe Device Simulator
-
-Responsibilities:
-
-- Represent the software storage device
-- Maintain queue pairs
-- Accept write commands
-- Dispatch commands to queue workers
-- Perform storage operations
-- Track queue behavior
-
-## 8.5 Storage Backend
-
-Responsibilities:
-
-- Manage backing file
-- Perform aligned writes
-- Perform `pwrite()`
-- Support `O_DIRECT`
-- Provide the physical write target
-
-## 8.6 Metrics Engine
-
-Responsibilities:
-
-- Measure request latency
-- Calculate percentile latency
-- Calculate IOPS
-- Calculate throughput
-- Count physical operations
-- Calculate coalescing reduction
-- Track queue utilization
-- Produce result data
-
-## 8.7 Benchmark / Experiment Runner
-
-Responsibilities:
-
-- Parse command-line arguments
-- Configure experiments
-- Run baseline and optimized tests
-- Store results
-- Produce comparisons
-
----
-
-# 9. Feature Priorities
-
-## Priority 1 — Core
-
-- Workload generation
-- Baseline cache
-- Optimized cache
-- Storage backend
-- Queue simulation
-- Metrics
-- Benchmark execution
-
-## Priority 2 — Optimization
-
-- Write coalescing
-- Batch processing
-- Multi-queue execution
-- Configurable flushing
-
-## Priority 3 — Evaluation
-
-- Uniform workloads
-- Zipf workloads
-- Reproducible seeds
-- Latency analysis
-- Throughput/IOPS analysis
-- Physical-write reduction analysis
-
-## Priority 4 — Academic Extension
-
-Investigate:
-
-- Linux character-device interface
-- Kernel-module integration
-- Additional queue policies
-- Additional cache policies
-
-Extensions should not compromise completion of the core simulator.
-
----
-
-# 10. Scope and Limitations
-
-The project is a **software simulator and experimental system**, not a replacement for a physical NVMe controller.
-
-The project distinguishes between:
-
-1. Real Linux file I/O
-2. Modeled storage latency
-3. Software-simulated NVMe-style queues
-
-Performance measurements are dependent on the execution environment when real I/O is used.
-
-The project shall not claim that simulated queue behavior represents the exact behavior of a commercial NVMe controller.
-
-Improvements observed in one workload or configuration shall not automatically be generalized to all workloads.
-
----
-
-# 11. Development Plan
-
-The project follows six academic development stages.
-
-## Stage 1 — Project Introduction
-
-Activities:
-
-- Define problem
-- Define motivation
-- Define objectives
-- Define scope
-- Identify expected outcomes
-- Establish project documentation
-
-**Status: Completed**
-
-Deliverables:
-
-- Project README
-- Initial Git repository
-- Initial GitHub repository
-- Project overview
-
-## Stage 2 — Requirements & Development Plan
-
-Activities:
-
-- Functional requirements
-- Non-functional requirements
-- System requirements
-- PRD
-- Module definition
-- Feature priorities
-- Scope and limitations
-- Development roadmap
-- Deliverables definition
-
-**Status: In Progress**
-
-Deliverable:
-
-```text
-docs/requirements.md
-```
-
-## Stage 3 — System Design & Architecture
-
-Planned:
-
-- Overall architecture
-- Component architecture
-- Data-flow design
-- Class design
-- UML class diagram
-- Sequence diagrams
-- State diagrams where useful
-- Data structures
-- Threading model
-- Queue architecture
-- Storage backend design
-- Device-driver/kernel feasibility investigation
-- Development environment definition
-- Git workflow
-
-Expected deliverables:
-
-- Architecture documentation
-- UML diagrams
-- Design specification
-- Implementation plan
-
-## Stage 4 — Initial Implementation & Prototype
-
-Activities:
-
-- Implement core modules
-- Integrate workload generator
-- Integrate baseline cache
-- Integrate optimized cache
-- Integrate queue simulator
-- Integrate storage backend
-- Integrate metrics
-- Run initial demonstrations
-- Document implementation issues and solutions
-
-Expected deliverables:
-
-- Working prototype
-- Source code
-- Initial benchmark results
-- Demo evidence
-
-## Stage 5 — Testing, Integration & Improvement
-
-Activities:
-
-- Unit testing
-- Integration testing
-- System testing
-- Concurrency testing
-- Data-integrity testing
-- Performance testing
-- Benchmark experiments
-- Debugging
-- Optimization
-- Code-quality improvements
-- Documentation updates
-
-Expected deliverables:
-
-- Test plan
-- Test results
-- Benchmark results
-- Performance charts
-- Issue/fix records
-- Updated documentation
-
-## Stage 6 — Final Implementation & Presentation
-
-Activities:
-
-- Final system integration
-- Final testing
-- Final benchmark analysis
-- Final architecture documentation
-- Final UML
-- Final source cleanup
-- Final README
-- Final report
-- Final presentation
-- Final demonstration
-
-Expected deliverables:
-
-- Final source code
-- Final GitHub repository
-- Final report
-- Final presentation
-- UML diagrams
-- Test documentation
-- Benchmark results
-- Final demo
-
----
-
-# 12. Development Workflow
-
-The project shall use Git for version control.
-
-The repository shall maintain a normal software-project structure rather than creating separate `stage-1`, `stage-2`, etc. directories. Stages represent the development process.
-
-Expected structure as documentation grows:
-
-```text
-nvme_wt_sim/
-├── README.md
-├── Makefile
-├── .gitignore
-├── include/
-├── src/
-├── scripts/
-├── docs/
-│   ├── requirements.md
-│   ├── architecture.md
-│   ├── testing.md
-│   └── benchmark-methodology.md
-└── results/
-```
-
-Generated benchmark outputs should remain excluded from Git when appropriate.
-
----
-
-# 13. Git Development Strategy
-
-Use meaningful commits, for example:
-
-```text
-docs: add project introduction and initial documentation
-docs: add project requirements and development plan
-docs: add system architecture and design
-feat: implement core simulator modules
-test: add validation and benchmark experiments
-docs: finalize results and project documentation
-```
-
-The exact commit sequence may evolve as development progresses.
-
----
-
-# 14. Expected Deliverables
-
-## Documentation
-
-- README
-- Requirements document
-- Architecture document
-- UML diagrams
-- Testing documentation
-- Benchmark methodology
-- Results analysis
-- Limitations
-- Future work
-
-## Software
-
-- C++ source code
-- Header files
-- Build system
-- Workload generator
-- Cache implementations
-- Queue simulator
-- Storage backend
-- Metrics system
-- Benchmark runner
-
-## Evidence
-
-- Build output
-- Program execution
-- Test results
-- Benchmark CSVs
-- Charts
-- Screenshots
-- Demo evidence
-- Git history
-
-## Final Academic Material
-
-- Project report
-- Presentation
-- Final demonstration
-
----
-
-# 15. Acceptance Criteria
-
-The project will be considered functionally complete when:
-
-1. The simulator builds successfully on the target Linux environment.
-2. The baseline write-through cache executes correctly.
-3. The optimized write-through cache executes correctly.
-4. Workload generation works for supported distributions.
-5. Write coalescing operates according to the defined semantics.
-6. Batch processing operates correctly.
-7. Multiple software queues process operations correctly.
-8. Storage operations complete without unintended data loss.
-9. Metrics are collected correctly.
-10. Benchmark results can be generated.
-11. Baseline and optimized implementations can be compared.
-12. Experiments can be reproduced using defined configurations and seeds.
-13. Testing demonstrates correct behavior under supported workloads.
-14. Documentation describes architecture, implementation, testing, results, limitations, and future work.
-15. The final project can be demonstrated using a documented workflow.
-
----
-
-# 16. Success Criteria
-
-The project will demonstrate:
-
-- A working write-through caching simulator
-- A baseline implementation
-- An optimized implementation
-- Write coalescing
-- Batch processing
-- NVMe-style software multi-queue processing
-- Linux file-I/O integration
-- Configurable workloads
-- Performance measurement
-- Repeatable benchmark methodology
-- Engineering documentation
-- A traceable development history
-
-The performance evaluation shall report measured results rather than assuming that the optimized implementation will always outperform the baseline.
-
----
-
-# 17. Future Extensions
-
-Potential future extensions include:
-
-- Linux character-device interface
-- Kernel-module integration where technically and academically appropriate
-- More detailed NVMe command modeling
-- Read caching
-- Additional cache replacement policies
-- Additional queue scheduling algorithms
-- More workload distributions
-- Failure injection
-- Persistent metadata
-- More detailed storage-device modeling
-- Hardware NVMe experiments
-
-These are future possibilities and are not required for the core implementation unless the project scope is formally expanded.
-
----
-
-# 18. Requirement Traceability
-
-Major requirements shall eventually be mapped to implementation and testing evidence.
-
-| Requirement | Implementation | Test/Evidence |
-|---|---|---|
-| FR-01 Workload generation | Workload module | Workload tests |
-| FR-03 Baseline cache | Baseline cache | Functional tests |
-| FR-04 Optimized cache | Optimized cache | Integration tests |
-| FR-05 Coalescing | Pending-write map | Coalescing tests |
-| FR-06 Batching | Batch flusher | Batch tests |
-| FR-07 Multi-queue | Queue-pair workers | Concurrency tests |
-| FR-08 Storage backend | Linux file I/O | I/O validation |
-| FR-10 Metrics | Metrics module | Metric validation |
-| FR-13 Comparison | Benchmark runner | Benchmark results |
-
-The traceability matrix will be expanded during Stages 3–5.
-
----
-
-# 19. Current Project Status
-
-At the beginning of Stage 2:
-
-- Stage 1 documentation is complete.
-- The initial C++ prototype exists.
-- The project builds successfully.
-- The executable runs successfully.
-- Baseline and optimized implementations are present.
-- Benchmark functionality is present.
-- Git repository is initialized.
-- Initial commit has been created.
-- GitHub repository has been created and the project has been pushed.
-
-Stage 2 is currently being formalized through this requirements specification.
-
----
-
-# 20. Document Status
-
-**Document:** Requirements Specification  
-**Project:** Write-Through Caching NVMe Accelerator Simulator  
-**Stage:** Stage 2 — Requirements & Development Plan  
-**Status:** Initial requirements baseline  
-**Next Stage:** System Design & Architecture
-
-This document is expected to evolve when later design and implementation work reveals requirements that need clarification or refinement.
----
-
-# 21. Product Requirements Document (PRD)
-
-## 21.1 Product Name
-
-**Write-Through Caching NVMe Accelerator Simulator**
-
-## 21.2 Product Description
-
-A Linux/C++ software simulator for studying write-through caching and NVMe-style I/O behavior.
-
-The system provides baseline and optimized write paths and measures the effect of write coalescing, batching, and multi-queue processing under configurable workloads.
-
-## 21.3 Target Users
-
-The primary users are:
-
-- Student/developer conducting storage-system experiments
-- Faculty/evaluator reviewing the capstone project
-- Developer running controlled performance experiments
-
-## 21.4 Primary User Goal
-
-The user should be able to configure a workload, execute the simulator, and obtain measurable results comparing the baseline and optimized write-through implementations.
-
-## 21.5 Main User Workflow
-
-```text
-Configure Experiment
-        │
-        ▼
-Generate Workload
-        │
-        ▼
-Run Baseline
-        │
-        ▼
-Run Optimized
-        │
-        ▼
-Collect Metrics
-        │
-        ▼
-Generate Results
-        │
-        ▼
-Compare Implementations
-
-## 21.6 Inputs
-
-| Input | Purpose |
-|---|---|
-| Number of requests | Workload size |
-| Address space | LBA range |
-| Distribution | Uniform / Zipf |
-| Zipf skew | Locality control |
-| Application threads | Concurrency |
-| Number of queues | Multi-queue configuration |
-| Batch trigger | Batch formation |
-| Flush interval | Background flushing |
-| Random seed | Reproducibility |
-| Simulated latency | Controlled device timing |
-| Backing directory | Storage location |
-| Results directory | Output location |
-
-## 21.7 Processing
-
-The system shall:
-
-1. Generate logical write requests.
-2. Pass equivalent workloads through the baseline and optimized paths.
-3. Update cache state.
-4. Coalesce eligible pending writes in the optimized path.
-5. Form batches.
-6. Dispatch writes through software-simulated queues.
-7. Perform storage operations through the Linux backend.
-8. Record request and queue metrics.
-9. Produce comparison results.
-
-## 21.8 Outputs
-
-The system shall produce:
-
-- Execution summary
-- Latency statistics
-- IOPS
-- Throughput
-- Logical write count
-- Physical write count
-- Coalescing reduction
-- Queue utilization
-- Wall-clock execution time
-- CSV results
-- Log files
-- Charts where applicable
-
-## 21.9 Core Product Features
-
-| Feature | Priority |
-|---|---|
-| Workload generation | Must Have |
-| Baseline write-through cache | Must Have |
-| Optimized write-through cache | Must Have |
-| Write coalescing | Must Have |
-| Batch processing | Must Have |
-| Multi-queue simulation | Must Have |
-| Linux storage backend | Must Have |
-| Performance metrics | Must Have |
-| Benchmark comparison | Must Have |
-| Reproducible workloads | Must Have |
-| Result generation | Must Have |
-| Kernel/device interface | Investigate / Optional |
-
-## 21.10 Product Constraints
-
-The simulator must:
-
-- Run in the target Linux environment.
-- Use C++17.
-- Avoid requiring physical NVMe hardware for core functionality.
-- Clearly distinguish simulated NVMe-style behavior from real NVMe hardware.
-- Keep benchmark methodology reproducible.
-- Avoid making unsupported claims about real hardware performance.
-
-## 21.11 PRD Acceptance Criteria
-
-The product requirements are satisfied when a user can:
-
-1. Build the simulator.
-2. Display available configuration options.
-3. Configure a workload.
-4. Generate a repeatable workload using a seed.
-5. Execute the baseline implementation.
-6. Execute the optimized implementation.
-7. Exercise coalescing and batching.
-8. Use multiple software queues.
-9. Collect performance metrics.
-10. Generate benchmark results.
-11. Compare both implementations.
-12. Interpret the resulting measurements using documented methodology.
-
----
-
-# 22. Module & Feature Definition
-
-## 22.1 Workload Generator
-
-**Purpose:** Generate controlled write workloads.
-
-### Features
-
-- Generate configurable number of requests
-- Generate LBA addresses
-- Uniform distribution
-- Zipf distribution
-- Configurable Zipf skew
-- Configurable random seed
-- Configurable application threads
-
-### Inputs
-
-```text
-requests
-address-space
-distribution
-zipf-skew
-seed
-app-threads
-## 22.2 Baseline Write-Through Cache
-
-**Purpose:** Provide the reference implementation.
-
-### Features
-
-- Receive write request
-- Update cache
-- Submit physical write
-- Wait for completion
-- Return completion to application
-
-### Flow
-
-```text
-Application
-    │
-    ▼
-Baseline Cache
-    │
-    ▼
-Storage Backend
-    │
-    ▼
-Completion
-
-## 22.3 Optimized Write-Through Cache
-
-**Purpose:** Implement the optimization mechanisms being studied.
-
-### Features
+The optimized implementation shall support:
 
 - Pending-write tracking
 - Write coalescing
-- Batch formation
+- Batching
 - Background flushing
-- Completion notification
+- Multi-queue dispatch
+- Concurrent outstanding writes
 
-### Flow
+---
+
+## FR-05: Write Coalescing
+
+The optimized cache shall identify multiple pending writes targeting the same logical block.
+
+When multiple writes target the same LBA within the pending-write window, the latest pending value shall replace the earlier pending value.
+
+Conceptually:
 
 ```text
-Application
-      │
-      ▼
-Optimized Cache
-      │
-      ▼
-Pending Writes
-      │
-      ▼
-Coalescing
-      │
-      ▼
-Batch
-      │
-      ▼
-NVMe-style Queues
+Write A ─┐
+Write B ─┤
+Write C ─┼──> Same LBA
+Write D ─┘
+           │
+           ▼
+      Coalescing
+           │
+           ▼
+   One Physical Write
+### FR-06 — Optimized Write-Through Cache
 
-22.4 Write Coalescer
---------------------
+The system shall provide an optimized write-through cache implementation that improves write processing by using batching, write coalescing, and multi-queue request distribution.
 
-**Purpose:** Reduce redundant physical writes when multiple pending writes target the same LBA.
+### FR-07 — Write Coalescing
 
-Example:
+The system shall detect multiple pending writes targeting the same logical block and combine them into a single physical write operation within the configured flush window.
 
-```
-LBA 100 ← Write A
-LBA 100 ← Write B
-LBA 100 ← Write C
-              │
-              ▼
-       Coalesced pending write
-              │
-              ▼
-          LBA 100
-```
+### FR-08 — Batching
 
-### Features
+The system shall collect pending write requests and process them as batches based on the configured batch trigger and flush interval.
 
--   Track pending LBAs
--   Replace older pending data for the same LBA
--   Maintain waiting request completion
--   Count logical versus physical operations
+### FR-09 — Multi-Queue Processing
 
-* * * * *
+The system shall support multiple NVMe-style queue pairs and distribute write requests across available queues to model parallel I/O processing.
 
-22.5 Batch Manager / Flusher
-----------------------------
+### FR-10 — Workload Generation
 
-**Purpose:** Group pending writes before submitting them to the device layer.
+The system shall generate configurable workloads with different request counts, address-space sizes, application thread counts, and workload distributions.
 
-### Features
+### FR-11 — Uniform Workload
 
--   Batch trigger size
--   Flush interval
--   Background flushing
--   Batch extraction
--   Batch submission
+The system shall support a uniform workload distribution in which logical block addresses are selected across the configured address space.
 
-### Parameters
+### FR-12 — Zipfian Workload
 
-```
---batch-trigger
---flush-interval-us
-```
+The system shall support a Zipfian workload distribution to model workloads with different levels of data locality.
 
-* * * * *
+### FR-13 — Configurable Simulation Latency
 
-22.6 NVMe-Style Queue Simulator
--------------------------------
+The system shall allow the user to configure modeled device service latency for controlled performance experiments.
 
-**Purpose:** Model concurrent I/O queues similar in concept to NVMe submission/completion queues.
+### FR-14 — Performance Metrics
 
-### Features
+The system shall collect and report performance metrics including:
 
--   Configurable queue count
--   Queue selection
--   Queue workers
--   Concurrent processing
--   Queue utilization measurement
+- Logical write requests
+- Physical write operations
+- Average latency
+- P50 latency
+- P95 latency
+- P99 latency
+- Maximum latency
+- IOPS
+- Throughput
+- Wall-clock execution time
+- Queue utilization
+- Coalescing reduction
 
-### Example
+### FR-15 — Baseline and Optimized Comparison
 
-```
-              ┌── Queue 0 ──┐
-              ├── Queue 1 ──┤
-Requests ────►├── Queue 2 ──┤──► Storage
-              ├── Queue 3 ──┤
-              └── Queue N ──┘
-```
+The system shall execute the same generated workload using both the baseline and optimized cache implementations and provide comparative performance results.
 
-This is a **software simulation**, not a real NVMe controller.
+### FR-16 — Result Generation
 
-* * * * *
+The system shall generate benchmark results in a structured format suitable for analysis and comparison.
 
-22.7 Storage Backend
---------------------
+### FR-17 — Command-Line Configuration
 
-**Purpose:** Provide the actual write target used by the simulator.
+The system shall provide command-line options for configuring major simulation parameters, including:
 
-### Features
+- Number of requests
+- Address-space size
+- Number of queues
+- Workload distribution
+- Zipfian skew
+- Application threads
+- Flush interval
+- Batch trigger
+- Simulated latency
+- Backing storage directory
+- Results directory
+### FR-18 — Linux-Based Execution
 
--   Backing file
--   `pwrite()`
--   `O_DIRECT`
--   Aligned memory
--   LBA-to-file-offset conversion
--   Physical write execution
+The system shall be implemented and executed in a Linux environment using C/C++ and Linux system programming interfaces.
 
-### Current Block Size
+### FR-19 — Linux File I/O
 
-```
-4096 bytes
-```
+The system shall use Linux file I/O mechanisms to model storage operations, including `pwrite()` and direct I/O where applicable.
 
-* * * * *
+### FR-20 — Configurable Backing Storage
 
-22.8 Metrics Engine
--------------------
+The system shall support a configurable backing storage location for storing the simulated device data.
 
-**Purpose:** Measure system behavior.
+### FR-21 — Cache and Device Integration
 
-### Metrics
+The cache layer shall communicate with the NVMe-style device layer to submit and complete write operations.
 
-```
-Average latency
-p50
-p95
-p99
-Maximum latency
-IOPS
-Throughput
-Logical writes
-Physical writes
-Coalescing reduction
-Wall-clock time
-Queue utilization
-```
+### FR-22 — Request Completion
 
-* * * * *
+The system shall provide completion handling for submitted write requests so that application-level requests can wait for their corresponding storage operation to complete.
 
-22.9 Benchmark / Experiment Runner
-----------------------------------
+### FR-23 — Testing and Validation
 
-**Purpose:** Run controlled experiments and compare implementations.
+The system shall provide tests for the workload generator, metrics collection, cache/device integration, and write-coalescing behavior.
 
-### Features
+### FR-24 — Input Validation
 
--   Parse command-line arguments
--   Configure workload
--   Run baseline
--   Run optimized
--   Collect metrics
--   Generate comparison
--   Save results
+The system shall validate important command-line parameters and report invalid configuration values with an appropriate error message.
 
-* * * * *
+### FR-25 — Reliability Testing
 
-22.10 Result & Visualization
-----------------------------
+The system shall be tested using different workloads, queue configurations, concurrency levels, address-space sizes, and simulation parameters to verify correct behavior.
 
-**Purpose:** Store and present experiment results.
+### FR-26 — Performance Comparison
 
-### Outputs
+The system shall allow performance characteristics of the baseline and optimized implementations to be compared using identical workload configurations.
 
-```
-CSV
-LOG
-PNG charts
-```
+### FR-27 — Documentation
 
-This module becomes particularly important during Stage 5, when final testing and performance evaluation are performed.
+The project shall include documentation describing the requirements, architecture, design, implementation, testing, reliability considerations, and Linux-related concepts.
 
-* * * * *
+### FR-28 — GitHub Repository
 
-23\. Stage 2 Completion Summary
-===============================
+The complete project shall be maintained in a Git repository containing the source code, build configuration, documentation, and required project files.
 
-The following Stage 2 components have now been defined:
+### FR-29 — Build System
 
-| Component | Status |
-| --- | --- |
+The system shall provide a reproducible build process using a Makefile.
+
+### FR-30 — Project Demonstration
+
+The completed system shall be executable from the Linux command line so that its functionality and performance comparison can be demonstrated during project evaluation.
+
+## Non-Functional Requirements
+
+### NFR-01 — Performance
+
+The system should provide measurable performance metrics for both baseline and optimized write-through cache implementations.
+
+### NFR-02 — Scalability
+
+The system should support configurable numbers of application threads, queue pairs, requests, and logical address-space sizes.
+
+### NFR-03 — Reliability
+
+The system should operate correctly across different workload configurations and handle valid and invalid input parameters appropriately.
+
+### NFR-04 — Portability
+
+The project should use standard C++17 features and Linux system interfaces available in the target Linux development environment.
+
+### NFR-05 — Maintainability
+
+The source code should be organized into separate modules for workload generation, caching, NVMe-style device processing, metrics, and application control.
+
+### NFR-06 — Modularity
+
+Each major component should have a clearly defined responsibility and communicate with other components through well-defined interfaces.
+
+### NFR-07 — Usability
+
+The simulator should provide command-line options that allow users to configure and execute different experiments without modifying the source code.
+
+### NFR-08 — Reproducibility
+
+The same workload and configuration should be executable repeatedly so that baseline and optimized implementations can be compared consistently.
+
+### NFR-09 — Testability
+
+The project should contain automated tests and integration tests for important system components and behaviors.
+
+### NFR-10 — Documentation Quality
+
+The project should provide sufficient documentation for understanding the architecture, implementation, Linux concepts, build process, testing process, and execution procedure.
+
+## System Components
+
+### 1. Workload Generator
+
+Generates logical write requests according to the configured workload distribution and simulation parameters.
+
+### 2. Baseline Write-Through Cache
+
+Implements the basic write-through approach where each application write is synchronously submitted to the simulated storage device.
+
+### 3. Optimized Write-Through Cache
+
+Implements batching, write coalescing, and multi-queue request distribution to reduce unnecessary physical write operations.
+
+### 4. NVMe-Style Device Layer
+
+Models an NVMe-style storage device using multiple queue pairs and worker threads for concurrent request processing.
+
+### 5. Metrics Collector
+
+Collects latency, throughput, IOPS, physical operations, queue utilization, and coalescing statistics.
+
+### 6. Command-Line Interface
+
+Provides configuration options for controlling workload generation, queue configuration, batching, coalescing, and simulation parameters.
+
+### 7. Backing Storage
+
+Provides the Linux file-based storage layer used by the simulator for modeled physical write operations.
+
+---
+
+## Technology Requirements
+
+| Category | Requirement |
+|---|---|
+| Programming Language | C++ |
+| C++ Standard | C++17 |
+| Operating System | Linux |
+| Compiler | GNU g++ |
+| Build System | Make |
+| File I/O | Linux `pwrite()` |
+| Direct I/O | `O_DIRECT` |
+| Memory Alignment | `posix_memalign()` |
+| Concurrency | `std::thread` |
+| Synchronization | `std::mutex`, `std::condition_variable` |
+| Asynchronous Completion | `std::future`, `std::promise` |
+| Version Control | Git |
+| Repository | GitHub |
+
+---
+
+## Linux Requirements
+
+The project shall be developed and executed in a Linux environment.
+
+The implementation shall use relevant Linux system-programming concepts, including:
+
+- Linux file descriptors
+- File operations
+- `pwrite()`
+- `O_DIRECT`
+- `ftruncate()`
+- POSIX memory alignment
+- Threads
+- Synchronization primitives
+- Concurrent I/O processing
+
+Linux Device Driver concepts relevant to the project shall also be documented and related to the simulated storage architecture.
+
+---
+
+## Device and Storage Requirements
+
+The simulated storage device shall:
+
+- Maintain a configurable number of NVMe-style queue pairs.
+- Process write requests using worker threads.
+- Support logical block addressing.
+- Use a configurable block size.
+- Maintain queue statistics.
+- Support modeled service latency.
+- Support Linux-backed file storage for physical write operations.
+
+The project shall clearly distinguish between the simulated NVMe-style architecture and an actual physical NVMe controller.
+
+---
+
+## Performance Requirements
+
+The project shall provide measurable results for:
+
+- Logical write operations
+- Physical write operations
+- Average latency
+- P50 latency
+- P95 latency
+- P99 latency
+- Maximum latency
+- IOPS
+- Throughput
+- Wall-clock execution time
+- Queue utilization
+- Coalescing reduction
+
+Performance experiments shall be performed using identical workload configurations when comparing the baseline and optimized implementations.
+
+## Testing Requirements
+
+The project shall be tested at multiple levels to verify correctness, integration, reliability, and performance.
+
+### Unit Testing
+
+Individual modules shall be tested independently, including:
+
+- Workload generation
+- Metrics collection
+- Cache behavior
+- NVMe-style device operations
+
+### Integration Testing
+
+The interaction between the cache layer and the NVMe-style device layer shall be tested to verify that write requests are correctly submitted and completed.
+
+### Coalescing Testing
+
+The optimized cache shall be tested with workloads containing repeated writes to the same logical block to verify that multiple logical writes can be reduced to fewer physical write operations.
+
+### Multi-Queue Testing
+
+The system shall be tested using different numbers of queue pairs to verify concurrent queue processing and queue utilization.
+
+### Workload Testing
+
+The simulator shall be tested using:
+
+- Uniform workloads
+- Zipfian workloads
+- Different address-space sizes
+- Different request counts
+- Different application thread counts
+
+### Boundary Testing
+
+The system shall be tested with boundary and edge-case configurations, including:
+
+- Zero requests
+- Minimum request counts
+- Single-thread execution
+- Single-queue execution
+- Multiple queues
+- Small address spaces
+- Batch-trigger boundaries
+- Zero Zipfian skew
+- Invalid command-line parameters
+
+### Regression Testing
+
+Previously validated workloads shall be rerun after source-code changes to ensure that existing functionality continues to work correctly.
+
+### Performance Testing
+
+The baseline and optimized implementations shall be executed using identical configurations so that their latency, throughput, IOPS, physical write count, and queue utilization can be compared.
+
+---
+
+## Project Constraints
+
+The project shall follow these constraints:
+
+1. The implementation shall use C or C++ only.
+2. The project shall be developed and executed on Linux.
+3. Python, Java, or other programming languages shall not be used for the project implementation.
+4. The project shall focus on software and hardware-architecture concepts related to storage systems.
+5. The NVMe component shall be treated as a software simulation/model rather than a physical NVMe controller implementation.
+6. The project shall remain understandable and suitable for academic evaluation.
+7. Performance results shall be interpreted according to the selected workload and simulation configuration.
+8. The project shall not claim physical NVMe hardware performance based solely on simulator results.
+
+---
+
+## Development Plan
+
+The project shall be developed through the following stages:
+
+### Stage 1 — Project Introduction
+
+- Define project idea
+- Define problem statement
+- Define motivation
+- Define objectives
+- Define project scope
+- Define expected outcome
+- Define technology stack
+
+### Stage 2 — Requirements and Development Plan
+
+- Define functional requirements
+- Define non-functional requirements
+- Identify system modules
+- Define project constraints
+- Prepare the requirements document
+- Prepare the development plan
+
+### Stage 3 — System Design and Architecture
+
+- Design system architecture
+- Define component responsibilities
+- Design data structures
+- Prepare class diagrams
+- Prepare sequence diagrams
+- Prepare state-machine diagrams
+- Define implementation approach
+- Define Git workflow
+
+### Stage 4 — Initial Implementation and Prototype
+
+- Implement storage layer
+- Implement NVMe-style queue layer
+- Implement baseline cache
+- Implement optimized cache
+- Implement workload generator
+- Implement metrics collection
+- Integrate the components
+- Verify initial functionality
+
+### Stage 5 — Testing, Integration and Improvement
+
+- Perform unit testing
+- Perform integration testing
+- Perform system testing
+- Perform reliability testing
+- Perform performance benchmarking
+- Debug identified issues
+- Validate optimized behavior
+- Perform regression testing
+
+### Stage 6 — Final Implementation and Presentation
+
+- Complete final implementation
+- Prepare final benchmark results
+- Finalize documentation
+- Prepare testing evidence
+- Clean the GitHub repository
+- Review Git history
+- Prepare project demonstration
+- Document limitations and future work
+- Complete final submission
+
+## Repository Requirements
+
+The GitHub repository shall contain the complete project required for execution, evaluation, and understanding of the system.
+
+The repository shall include:
+
+- Source code
+- Header files
+- Makefile
+- README.md
+- Project documentation
+- Test source files
+- `.gitignore`
+- Required configuration files
+
+Generated build artifacts and temporary files should not be included in normal Git tracking.
+
+---
+
+## Documentation Requirements
+
+The project documentation shall provide sufficient information for another user to understand and execute the project.
+
+The documentation shall cover:
+
+- Project overview
+- Problem statement
+- Objectives
+- Scope
+- Requirements
+- System architecture
+- Software design
+- Linux concepts
+- Implementation details
+- Build instructions
+- Execution instructions
+- Testing procedure
+- Reliability testing
+- Performance results
+- Limitations
+- Future work
+
+The README shall provide the primary instructions for building, running, and understanding the project.
+
+---
+
+## Git Requirements
+
+The project shall use Git for version control.
+
+The Git repository shall maintain a meaningful development history showing the progression of the project.
+
+Commits should be organized around logical development activities, such as:
+
+- Project initialization
+- Requirements documentation
+- Architecture documentation
+- Design documentation
+- Initial implementation
+- Feature implementation
+- Testing
+- Reliability improvements
+- Documentation updates
+- Final cleanup
+
+The final repository shall contain the completed project and its associated documentation.
+
+---
+
+## Expected Outcome
+
+The completed project is expected to provide a working Linux/C++ software simulator demonstrating write-through caching concepts and NVMe-style storage architecture.
+
+The system should demonstrate:
+
+- Baseline write-through processing
+- Optimized write-through processing
+- Write coalescing
+- Batch processing
+- Multi-queue request handling
+- Configurable workloads
+- Performance measurement
+- Linux system-programming concepts
+- Reliability testing
+- Comparison between baseline and optimized approaches
+
+The project should also provide sufficient documentation and source code for academic evaluation and demonstration.
+
+---
+
+## Project Limitations
+
+The project is a software simulator and is not intended to implement a complete physical NVMe controller or hardware/firmware stack.
+
+The simulated NVMe-style queue system models concepts such as:
+
+- Multiple submission/processing queues
+- Concurrent request handling
+- Queue distribution
+- Storage service latency
+
+Performance results depend on:
+
+- Workload characteristics
+- Number of application threads
+- Number of queues
+- Address-space size
+- Batch configuration
+- Flush interval
+- Simulated service latency
+- Linux execution environment
+
+Therefore, simulator results should be interpreted as experimental observations of the implemented architecture rather than guaranteed physical SSD performance.
+
+---
+
+## Requirement Traceability
+
+The project requirements shall be traceable to the corresponding implementation and documentation components.
+
+| Requirement Area | Related Component |
+|---|---|
+| Workload generation | `workload.hpp`, `workload.cpp` |
+| Baseline caching | `write_through_cache.hpp`, `write_through_cache.cpp` |
+| Optimized caching | `write_through_cache.hpp`, `write_through_cache.cpp` |
+| NVMe-style queues | `nvme_device.hpp`, `nvme_device.cpp` |
+| Performance metrics | `metrics.hpp`, `metrics.cpp` |
+| Command-line configuration | `main.cpp` |
+| Automated testing | `tests/` |
+| Linux concepts | `docs/linux-driver-concepts.md` |
+| Architecture | `docs/architecture.md` |
+| Design | `docs/design.md` |
+| Testing | `docs/testing.md` |
+| Reliability testing | `docs/reliability-testing.md` |
+| Project execution | `README.md` |
+
+---
+
+## Requirement Completion Summary
+
+| Requirement Category | Status |
+|---|---|
 | Functional Requirements | Complete |
 | Non-Functional Requirements | Complete |
-| System Requirements | Complete |
-| Product Requirements Document | Complete |
-| Module & Feature Definition | Complete |
-| Scope & Limitations | Complete |
-| Development Plan | Complete |
-| Deliverables | Complete |
-| Acceptance Criteria | Complete |
-| Success Criteria | Complete |
-| Requirement Traceability | Complete |
+| System Architecture | Complete |
+| Linux System Programming | Implemented |
+| NVMe-Style Queue Model | Implemented |
+| Baseline Cache | Implemented |
+| Optimized Cache | Implemented |
+| Write Coalescing | Implemented |
+| Batching | Implemented |
+| Multi-Queue Processing | Implemented |
+| Workload Generation | Implemented |
+| Metrics Collection | Implemented |
+| Automated Testing | Implemented |
+| Reliability Testing | Completed |
+| Documentation | Complete |
+| GitHub Repository | Complete |
+| Final Demonstration | Required |
+| Final Submission | Required |
 
-Stage 2 is now ready for final review and Git version control.
+---
 
-* * * * *
+## Conclusion
 
-24\. Next Development Stage
-===========================
+The requirements define a Linux/C++ software simulator for studying write-through caching and NVMe-style storage architecture.
 
-After Stage 2 is committed, the project will proceed to:
+The project focuses on understandable system-programming concepts including caching, write coalescing, batching, concurrent queue processing, Linux file I/O, synchronization, workload generation, and performance measurement.
 
-**Stage 3 --- System Design & Architecture**
-
-Stage 3 will define:
-
--   Overall system architecture
--   Component interactions
--   Data flow
--   Class design
--   Data structures
--   Threading model
--   Queue architecture
--   Cache architecture
--   Storage backend architecture
--   UML class diagram
--   Sequence diagrams
--   State diagrams where useful
--   Linux device-driver/kernel feasibility
--   Implementation plan
-
-No major architectural implementation changes should be made until this design stage is documented.
-
-```
+The completed implementation and documentation shall provide a suitable basis for final testing, demonstration, and academic evaluation.

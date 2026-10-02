@@ -1,308 +1,656 @@
-# Testing and Prototype Results
+# Testing Documentation
 
 ## 1. Purpose
 
-This document describes the testing performed during Stage 4 of the
-Write-Through Caching NVMe Accelerator Simulator.
+This document describes the testing strategy used for the **Write-Through Caching NVMe Accelerator Simulator**.
 
-The purpose of testing is to verify:
+The objective of testing is to verify:
 
-- Correctness of workload generation
-- Correctness of metrics collection
-- Integration between the cache and NVMe device model
-- Correctness of write coalescing
-- Correctness of the optimized write-through path
-- Behavior under different workload distributions
-- Performance characteristics under modeled and real Linux I/O timing
-
-Functional tests are used to verify correctness, while performance
-experiments are used to characterize system behavior.
-
----
-
-## 2. Test Environment
-
-The prototype was developed and tested in the following environment.
-
-| Component | Configuration |
-|---|---|
-| Operating System | Ubuntu on WSL2 |
-| Language | C++17 |
-| Compiler | GCC / G++ |
-| Build System | GNU Make |
-| Storage Interface | Linux `pwrite()` |
-| Direct I/O | `O_DIRECT` |
-| Memory Alignment | `posix_memalign()` |
-| Concurrency | C++ threads |
-| Synchronization | mutexes, condition variables, futures/promises |
-| Workload Generator | Uniform and Zipfian |
-| Visualization | Python / Matplotlib |
-| Version Control | Git / GitHub |
-
-The simulator uses a backing storage file to model persistent storage.
-
-The project does not claim to benchmark a physical NVMe controller.
-The NVMe behavior is modeled in software while the actual storage path
-uses Linux file I/O.
-
----
-
-## 3. Test Strategy
-
-Testing is divided into several levels.
-
-### 3.1 Unit Testing
-
-Individual modules are tested independently.
-
-Examples:
-
+- Correctness of the baseline write-through cache
+- Correctness of the optimized write-through cache
+- Write coalescing behavior
+- Batching behavior
+- Multi-queue processing
 - Workload generation
-- Metrics calculation
-
-### 3.2 Integration Testing
-
-Multiple modules are tested together.
-
-Examples:
-
-- Cache + NVMe device
-- Optimized cache + queue model
-- Write submission + backing storage
-
-### 3.3 Functional Testing
-
-Functional tests verify important project behavior such as:
-
-- Data is written successfully
-- Logical writes are completed
-- Physical writes are issued
-- Coalescing reduces duplicate physical writes
-- Final data remains valid
-
-### 3.4 Performance Testing
-
-Performance experiments are used to observe:
-
-- Latency
-- IOPS
-- Throughput
-- Physical operation count
-- Queue utilization
-- Coalescing reduction
-
-Performance results are workload-dependent and are not treated as
-universal hardware performance measurements.
+- Metrics collection
+- Edge-case handling
+- Performance behavior under different workloads
+- Regression stability after code changes
 
 ---
 
-# 4. Automated Test Suite
+## 2. Testing Approach
 
-The project currently contains four automated tests.
+Testing is divided into multiple levels:
 
-```text
-tests/
-├── workload_test.cpp
-├── metrics_test.cpp
-├── cache_integration_test.cpp
-└── coalescing_test.cpp```
+1. **Unit Testing**
+2. **Integration Testing**
+3. **Coalescing Testing**
+4. **Workload Testing**
+5. **Performance Testing**
+6. **Reliability and Edge-Case Testing**
+7. **Regression Testing**
+8. **Real Linux I/O Testing**
 
-# 5. Workload Generator Test
-## Objective
-Verify that the workload generator produces valid requests for both supported distributions.
+The project uses C++ test programs compiled and executed in the Linux/WSL2 environment.
 
-## Tests Performed
-The test verifies:
-- Correct number of generated requests
-- Valid LBA values
-- Positive block counts
+---
+
+## 3. Automated Tests
+
+The project includes automated tests for the major software components.
+
+### Workload Generator Test
+
+Validates:
+
 - Uniform workload generation
 - Zipfian workload generation
-- Deterministic output when the same random seed is used
+- Request count
+- LBA generation
+- Deterministic behavior when required
 
-## Result
-**Workload generator tests: PASS**
+Expected result:
 
-The test confirms that the workload generator produces structurally valid and reproducible workloads.
+```text
+Workload generator tests: PASS
+### Metrics Collector Test
 
-# 6. Metrics Collector Test
-## Objective
-Verify the correctness of latency statistics and performance metrics.
+Validates:
 
-## Metrics Tested
-| Metric | Description |
-|---------|--------------|
-| Logical request count | Count of logical requests |
-| Physical operation count | Count of physical operations |
-| Average latency | Mean latency across requests |
-| Percentile latency | Latency at specific percentiles |
-| Maximum latency | Highest observed latency |
-| IOPS | Input/output operations per second |
-| Throughput | Data transfer rate |
+- Logical write counting
+- Physical write counting
+- Latency collection
+- Percentile calculation
+- Throughput calculation
+- IOPS calculation
 
-## Result
-**Metrics collector tests: PASS**
+Expected result:
 
-The test confirms that the metrics collector correctly processes the recorded measurements.
+```text
+Metrics collector tests: PASS
+### Cache/Device Integration Test
 
-# 7. Cache and Device Integration Test
-## Objective
-Verify the interaction between the write-through cache and the software NVMe device model.
+Validates the interaction between:
 
-The test exercises:
-> Application → Write-Through Cache → NVMe Device Model → NVMe Queue → Linux pwrite() → Backing Storage File 
-Both baseline and optimized cache paths are tested.
+- Write-through cache
+- NVMe device model
+- Queue processing
+- Linux file-backed storage
 
-## Verification
-The test verifies that:
-- Writes complete successfully;
-- The cache and device model integrate correctly;
-- Data reaches the backing storage;
-- Both cache implementations can perform writes.
+Expected result:
 
-## Result
-**Cache/device integration tests: PASS**
+```text
+Cache/device integration tests: PASS
+```
 
-# 8. Write Coalescing Test
-## Objective
-Verify that multiple concurrent writes targeting the same logical block can be coalesced into a smaller number of physical writes.
+### Coalescing Test
 
-The test launches eight concurrent writes targeting the same LBA.
-> Conceptually:
-> - Write A ─┐
-> - Write B ─┤
-> - Write C ─┤
-> - Write D ─┤
-> - Write E ─┤──→ Pending Write Table \
-> - Write F ─┤
-> - Write G ─┤
-> - Write H ─┘
->	↓
->	Coalescing 
->	↓
->	Physical Write
+Validates that multiple writes targeting the same LBA can be coalesced into fewer physical writes.
 
+Example result:
 
-These mechanisms introduce overhead.
+```text
+Coalescing test: PASS
+Logical writes: 8
+Physical writes: 1
+```
 
-Therefore:
+This confirms that repeated writes to the same block can be reduced to a single physical write within the coalescing window.
+---
 
-**Optimization benefit**
-- workload locality
-- sufficient concurrency
-- enough batching opportunity
-- minus optimization overhead
+## 4. Running the Automated Tests
 
-Workloads with little address reuse may provide limited coalescing benefit.
+The complete automated test suite can be executed using:
 
-Workloads with high address locality provide more opportunities to reduce physical operations.
+```bash
+make test
+```
 
-## 17. Issues Encountered and Resolutions
-### 17.1 Optimized Path Was Slower on Small Workloads
-**Observation:**
-Small workloads sometimes showed higher optimized latency.
+The tests should complete successfully before considering a code change ready for further benchmarking.
 
-**Cause:**
-The optimized path introduces background flushing, synchronization, and batching overhead.
+---
 
-**Resolution:**
-The behavior was retained because it reflects a legitimate trade-off of the design rather than a functional error.
-Larger and more locality-heavy workloads were added to evaluate the optimization under conditions where it has more opportunity to help.
+## 5. Functional Testing
 
-### 17.2 Coalescing Was Difficult to Observe Reliably
-**Observation:**
-Random workloads did not always produce visible coalescing.
+Functional testing verifies that the simulator performs the required operations correctly.
 
-**Cause:**
-Coalescing requires multiple writes to the same LBA to overlap within the pending-write window.
+The following functionality is tested:
 
-**Resolution:**
-A deterministic concurrency test was added that intentionally sends multiple writes to the same LBA.
-The test verifies the mechanism independently from random workload behavior.
+- Workload generation
+- Cache insertion
+- Write-through behavior
+- Physical write submission
+- Queue selection
+- Background flushing
+- Write coalescing
+- Batch processing
+- Metrics collection
+- Command-line argument parsing
 
-### 17.3 Generated Test Binaries Appeared in Git
-**Observation:**
-Compiled test executables appeared as untracked files.
+---
 
-**Resolution:**
-the repository `.gitignore` was updated with:
-tests/*_test
-This prevents generated test binaries from being committed.
+## 6. Baseline Cache Testing
 
-### 17.4 Metrics Test Assumptions
-**Observation:**
-An initial metrics test assumed a specific coalescing-ratio interface that was not exposed by the current public API.
+The baseline cache is tested using:
 
-**Resolution:**
-the test was corrected to validate the metrics that are actually provided by the MetricsCollector public interface.
-This keeps the tests aligned with the implemented API.
+- Single-threaded workloads
+- Multi-threaded workloads
+- Uniform workloads
+- Zipfian workloads
+- Different address-space sizes
+- Different queue counts
 
-## 18. Current Prototype Status
-The following Stage 4 components are currently implemented and tested:
-| Component | Status |
-|---|---|
-| Project build | Complete |
-| Workload generator | Complete |
-| Uniform workload | Complete |
-| Zipf workload | Complete |
-| Metrics collector | Complete |
-| NVMe queue model | Complete |
-| Baseline cache | Complete |
-| Optimized cache | Complete |
-| Write batching | Complete |
-| Write coalescing | Complete |
-| Multi-queue scheduling | Complete |
-| Linux O_DIRECT path | Complete |
-| Unit tests | Complete |
-| Integration tests | Complete |
-| Coalescing correctness test | Complete |
-| Prototype performance experiments | Complete |
-| Testing documentation | Complete |
+The baseline implementation is expected to perform a physical write for every logical write.
 
-# 19. Stage 4 Limitations
+For example:
 
-The current prototype has several limitations.
+```text
+Logical writes: 1000
+Physical writes: 1000
+```
 
-## 19.1 Software NVMe Model
+This provides the reference behavior against which the optimized implementation can be compared.
 
-The queue and NVMe behavior are modeled in software rather than implemented using a real NVMe controller interface.
+---
 
-## 19.2 Backing Storage
+## 7. Optimized Cache Testing
 
-The device model uses a backing file rather than directly managing a physical NVMe namespace.
+The optimized cache is tested for:
 
-## 19.3 WSL2 Environment
+- Write coalescing
+- Batching
+- Background flushing
+- Multi-queue dispatch
+- Queue balancing
+- Correct completion of waiting requests
 
-Testing has been performed under Ubuntu on WSL2.
+For workloads with repeated writes to the same LBA, the optimized implementation should reduce the number of physical writes.
 
-Kernel-level driver development and loading have not been demonstrated in this environment.
+Example:
 
-## 19.4 Workload Scope
+```text
+Logical writes: 1000
+Physical writes: 596
+Coalescing reduction: 40.40%
+```
 
-The current workload generator focuses on write requests and supports uniform and Zipfian address distributions.
+---
 
-## 19.5 Parameter Tuning
+## 8. Workload Testing
 
-Batch size, flush interval, queue count, application concurrency, and workload locality can significantly affect the results.
+Two workload distributions are supported:
 
-# 20. Stage 4 Conclusion
+### Uniform Distribution
 
-Stage 4 established a working prototype of the proposed Write-Through Caching NVMe Accelerator Simulator.
+Each LBA has approximately equal probability of being selected.
 
-The implementation now includes:
-- Workload Generation 071;
-- Application Threads 071;
-- Write-Through Cache ;
-- Baseline ; 
-- Optimized ;
-- Coalescing + Batching ;
-- Multi-Queue Model ;
-- Linux O_DIRECT ;
-- Backing Storage
-;
+Example:
 
-The automated test suite passes, including the dedicated coalescing correctness test.
+```bash
+./nvme_wt_sim \
+  --requests 1000 \
+  --address-space 100 \
+  --distribution uniform \
+  --app-threads 8
+```
 
-Performance experiments demonstrate that workload locality can create significant opportunities for physical-write reduction.
+Uniform workloads are useful for evaluating general behavior with relatively low locality.
 
-The prototype is therefore ready for the Stage 5 focus on more systematic testing, integration, reliability, performance analysis, and improvement.
+### Zipfian Distribution
+
+Some LBAs are accessed more frequently than others.
+
+Example:
+
+```bash
+./nvme_wt_sim \
+  --requests 1000 \
+  --address-space 100 \
+  --distribution zipf \
+  --zipf-skew 1.5 \
+  --app-threads 8
+```
+
+Zipfian workloads are useful for testing the effectiveness of write coalescing.
+
+---
+
+## 9. Multi-Thread Testing
+
+The simulator supports multiple application threads.
+
+Example:
+
+```bash
+./nvme_wt_sim \
+  --requests 1000 \
+  --address-space 100 \
+  --queues 8 \
+  --distribution zipf \
+  --zipf-skew 1.5 \
+  --app-threads 8 \
+  --sim-latency-us 60
+```
+
+Multi-thread testing verifies:
+
+- Thread synchronization
+- Shared cache access
+- Concurrent request generation
+- Queue processing
+- Background flushing
+- Completion handling
+
+---
+
+## 10. Multi-Queue Testing
+
+The optimized implementation distributes physical writes across multiple simulated NVMe queue pairs.
+
+Testing is performed with different queue counts, including:
+
+```text
+1 queue
+4 queues
+8 queues
+```
+
+The purpose is to verify:
+
+- Correct queue selection
+- Concurrent queue processing
+- Queue balancing
+- Absence of deadlocks
+- Stable completion behavior
+
+Queue utilization is recorded for each queue.
+
+---
+
+## 11. Write Coalescing Testing
+
+Write coalescing is one of the main optimization mechanisms in the project.
+
+The test generates multiple writes to the same logical block.
+
+Example:
+
+```text
+Logical writes: 8
+Physical writes: 1
+```
+
+The expected behavior is:
+
+```text
+Multiple logical writes
+        ↓
+Same LBA
+        ↓
+Pending writes merged
+        ↓
+One physical write
+```
+
+This demonstrates the reduction in physical I/O operations.
+
+---
+
+## 12. Batching Testing
+
+The optimized cache uses a background flush mechanism.
+
+Pending writes are collected into a batch before being submitted to the simulated NVMe device.
+
+The following parameters can be varied:
+
+```text
+--flush-interval-us
+--batch-trigger
+```
+
+Example:
+
+```bash
+./nvme_wt_sim \
+  --requests 1000 \
+  --address-space 100 \
+  --distribution zipf \
+  --zipf-skew 1.5 \
+  --app-threads 8 \
+  --flush-interval-us 200 \
+  --batch-trigger 64 \
+  --sim-latency-us 60
+```
+
+Testing verifies that pending requests are eventually flushed even when the batch-trigger threshold is not reached.
+
+## 13. Edge-Case Testing
+
+The simulator is tested with boundary and invalid input values.
+
+Examples include:
+
+- Zero requests
+- One request
+- One application thread
+- One queue
+- Multiple queues
+- Very small address space
+- Large address space
+- Zero Zipf skew
+- Invalid Zipf skew
+- Invalid queue count
+- Invalid address-space size
+- Invalid distribution value
+
+The program should reject invalid arguments cleanly instead of continuing with invalid configuration.
+
+---
+
+## 14. Zero-Request Test
+
+The simulator is tested with:
+
+```text
+--requests 0
+```
+
+Expected behavior:
+
+- No crash
+- No physical writes
+- No logical writes
+- Valid zero-valued metrics
+
+Example:
+
+```text
+Logical writes: 0
+Physical writes: 0
+```
+
+---
+
+## 15. Single-LBA Stress Test
+
+A deliberately constructed workload is used where all requests target a very small address space.
+
+Example:
+
+```bash
+./nvme_wt_sim \
+  --requests 1000 \
+  --address-space 1 \
+  --distribution uniform \
+  --app-threads 8 \
+  --queues 8 \
+  --sim-latency-us 60
+```
+
+This creates a strong opportunity for write coalescing.
+
+The test demonstrates that the optimized cache can substantially reduce physical writes when many logical writes target the same block.
+
+---
+
+## 16. Regression Testing
+
+A representative workload is repeatedly executed after code changes.
+
+Example:
+
+```bash
+./nvme_wt_sim \
+  --requests 1000 \
+  --address-space 100 \
+  --queues 8 \
+  --distribution zipf \
+  --zipf-skew 1.5 \
+  --app-threads 8 \
+  --flush-interval-us 200 \
+  --batch-trigger 64 \
+  --sim-latency-us 60
+```
+
+The purpose of regression testing is to ensure that changes to:
+
+- argument validation
+- cache implementation
+- queue handling
+- workload generation
+- metrics
+- documentation-related source changes
+
+do not introduce functional regressions.
+
+---
+
+## 17. Representative Regression Results
+
+A representative regression run produced the following results.
+
+### Baseline
+
+```text
+Logical writes:       1000
+Physical writes:      1000
+Average latency:      993.93 us
+P50 latency:          850.61 us
+P95 latency:          1702.65 us
+P99 latency:          1996.48 us
+Application IOPS:     7326.10
+Application throughput: 28.62 MB/s
+```
+
+### Optimized
+
+```text
+Logical writes:       1000
+Physical writes:      596
+Coalescing reduction: 40.40%
+Average latency:      739.95 us
+P50 latency:          681.19 us
+P95 latency:          1134.34 us
+P99 latency:          1782.69 us
+Application IOPS:     10627.39
+Application throughput: 41.51 MB/s
+```
+
+The run demonstrates that the optimized implementation can reduce physical operations while maintaining correct logical write completion.
+
+---
+
+## 18. Real Linux I/O Testing
+
+The simulator can also be executed using real Linux `O_DIRECT` file I/O by setting:
+
+```text
+--sim-latency-us 0
+```
+
+Example:
+
+```bash
+./nvme_wt_sim \
+  --requests 1000 \
+  --address-space 1000 \
+  --queues 8 \
+  --distribution zipf \
+  --zipf-skew 1.5 \
+  --app-threads 8 \
+  --sim-latency-us 0
+```
+
+This mode uses Linux file I/O rather than an artificially modeled device service delay.
+
+The purpose is to observe simulator behavior with actual Linux storage-system calls.
+
+---
+
+## 19. Simulated Device Timing
+
+The simulator also supports modeled device latency.
+
+For example:
+
+```text
+--sim-latency-us 60
+```
+
+adds an approximately modeled device service delay.
+
+This allows repeatable experiments without depending entirely on the performance characteristics of the host storage device.
+
+Both modes are useful for understanding the difference between:
+
+- Modeled device behavior
+- Actual Linux file-backed I/O
+
+---
+
+## 20. Metrics Verified During Testing
+
+The simulator records several performance metrics.
+
+### Latency
+
+- Average latency
+- P50 latency
+- P95 latency
+- P99 latency
+- Maximum latency
+
+### Throughput
+
+- Application throughput
+- Physical write throughput
+
+### IOPS
+
+- Application IOPS
+- Physical IOPS
+
+### Write Reduction
+
+```text
+Coalescing Reduction =
+(Logical Writes - Physical Writes)
+/
+Logical Writes × 100
+```
+
+### Queue Utilization
+
+Queue utilization is reported for individual queues and as an average across queues.
+
+---
+
+## 21. Reliability Observations
+
+Testing demonstrated that the simulator:
+
+- Handles zero-request workloads
+- Handles single-request workloads
+- Handles single-threaded execution
+- Handles multi-threaded execution
+- Handles multiple simulated queues
+- Handles uniform workloads
+- Handles Zipfian workloads
+- Performs write coalescing
+- Performs background batching
+- Rejects invalid configuration values
+- Completes automated tests successfully
+- Supports both modeled and real Linux I/O modes
+
+---
+
+## 22. Known Reliability Limitations
+
+The current project is a learning-oriented simulator rather than a production storage system.
+
+One known limitation is related to physical I/O errors.
+
+If a Linux `pwrite()` operation fails, the current implementation reports the error, but the completion path does not propagate a full failure state through the cache request lifecycle.
+
+Therefore, the simulator currently does not implement a complete production-grade I/O error recovery mechanism.
+
+This limitation is documented rather than addressed with a larger error-handling framework because the project focuses on demonstrating:
+
+- C++ system programming
+- Linux I/O
+- caching
+- batching
+- coalescing
+- multi-queue processing
+
+---
+
+## 23. Test Execution Environment
+
+Testing was performed in a Linux environment using Ubuntu on WSL2.
+
+The project uses:
+
+```text
+C++17
+GNU g++
+Make
+Linux
+O_DIRECT
+pwrite()
+posix_memalign()
+std::thread
+std::mutex
+std::condition_variable
+std::future
+std::promise
+C++ STL
+```
+
+---
+
+## 24. Final Test Result
+
+The final automated test suite completed successfully:
+
+```text
+Workload generator tests: PASS
+Metrics collector tests: PASS
+Cache/device integration tests: PASS
+Coalescing test: PASS
+```
+
+The project was also tested using:
+
+- Boundary workloads
+- Invalid parameters
+- Uniform distributions
+- Zipfian distributions
+- Single-LBA workloads
+- Multi-threaded workloads
+- Multi-queue workloads
+- Modeled device latency
+- Real Linux `O_DIRECT` I/O
+
+---
+
+## 25. Conclusion
+
+The testing process verifies the major functional components of the Write-Through Caching NVMe Accelerator Simulator.
+
+The results confirm that the implementation can:
+
+1. Generate different storage workloads.
+2. Perform baseline write-through processing.
+3. Perform optimized write-through processing.
+4. Coalesce repeated writes.
+5. Batch pending operations.
+6. Distribute writes across multiple simulated queues.
+7. Collect latency and throughput metrics.
+8. Handle invalid and boundary inputs.
+9. Execute using Linux file-backed I/O.
+10. Pass the project's automated test suite.
+
+The testing results provide the required evidence that the simulator is functionally working and suitable for demonstration and evaluation as a Linux/C++ systems programming project.
