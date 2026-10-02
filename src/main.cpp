@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cstdlib>
 
 #include "metrics.hpp"
 #include "nvme_device.hpp"
@@ -73,6 +74,18 @@ static void parse_args(int argc, char** argv, Config& cfg) {
         } else {
             std::cerr << "unknown argument: " << a << "\n"; exit(1);
         }
+    }
+    if (cfg.num_queues <= 0) {
+        std::cerr << "Error: --queues must be greater than 0\n";
+        std::exit(1);
+    }
+    if (cfg.address_space == 0) {
+    	std::cerr << "Error: --address-space must be greater than 0\n";
+    	std::exit(1);
+    }
+    if (cfg.zipf_skew < 0.0) {
+    	std::cerr << "Error: --zipf-skew must be greater than or equal to 0\n";
+    	std::exit(1);
     }
 }
 
